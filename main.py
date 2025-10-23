@@ -450,7 +450,7 @@ async def upload_calls(request: Request) -> HTMLResponse:
 """
     return HTMLResponse(content=html_content)
 
-# Process uploaded spreadsheet. Currently works just as intended.
+# Process uploaded spreadsheet. Currently works just as intended. Proooobably could be more efficient.
 @app.post("/process", response_class=HTMLResponse)
 async def process_file(file: UploadFile):
     if not os.path.exists(f'temp_files\\{file.filename}'):
@@ -466,7 +466,7 @@ async def process_file(file: UploadFile):
         sheet = wb.worksheets[0]
         reader = sheet.iter_rows(values_only=True)
         first_row_skipped = False
-        input_rows: list = []
+        input_rows = set()
         for row in reader:
             if row[0] == None:
                 if not first_row_skipped:
@@ -475,8 +475,8 @@ async def process_file(file: UploadFile):
                     break
                 continue
             else:
-                input_rows.append(row)
-        
+                input_rows.add(tuple(row))
+
         with open('temp_files\\temp_file.csv', 'w', newline='') as temp:
             writer = csv.writer(temp)
             for row in input_rows:
@@ -502,19 +502,20 @@ async def process_file(file: UploadFile):
         tuple_to_append = (row[0], datetime.strftime(row[1], datetime_format), int(row[2]))
         processed_rows.append(tuple_to_append)
     # 10/22/25 4:08:36 PM for time format. note the lack of a leading 0 for the hour and two digit year!
-    for row in row_gen:
-        try:
-            row_values: tuple[str, str, int] = (row['Queue Name'], str(row['Call Time']), int(row['Phone Number']))
+    for row in row_gen:                    
+            row_values: tuple[str, str, int] = (row['Queue Name'], str(row['Call Time']), row['Phone Number'])
             if row_values in processed_rows:
+                print(row_values)
                 continue
             else:
                 if row['Contact Disposition'] in {'1', '1.0'}:            
                     QUERY = "INSERT into missedcalls (queue, time, phone) VALUES (%s, %s, %s);"
-                    DATA = (row['Queue Name'], row['Call Time'], int(row['Phone Number']))
-                    cur.execute(QUERY, DATA)
-        except Exception as e:
-            print("Phone number was not an int\n", row)
-            continue
+                    try:
+                        DATA = (row['Queue Name'], row['Call Time'], int(row['Phone Number']))                      
+                        cur.execute(QUERY, DATA)
+                    except Exception as e:
+                        print(e)
+        
     cur.close()
     con.commit()
     con.close()
