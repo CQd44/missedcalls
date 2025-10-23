@@ -466,7 +466,7 @@ async def process_file(file: UploadFile):
         sheet = wb.worksheets[0]
         reader = sheet.iter_rows(values_only=True)
         first_row_skipped = False
-        input_rows = set()
+        input_rows: list = []
         for row in reader:
             if row[0] == None:
                 if not first_row_skipped:
@@ -474,8 +474,8 @@ async def process_file(file: UploadFile):
                 else:
                     break
                 continue
-            else:
-                input_rows.add(tuple(row))
+            elif row not in input_rows:
+                input_rows.append(row)
 
         with open('temp_files\\temp_file.csv', 'w', newline='') as temp:
             writer = csv.writer(temp)
@@ -499,10 +499,10 @@ async def process_file(file: UploadFile):
     processed_rows = []
     datetime_format = "%m/%d/%y %#I:%M:%S %p"
     for row in cached_rows:
-        tuple_to_append = (row[0], datetime.strftime(row[1], datetime_format), int(row[2]))
+        tuple_to_append = (row[0], datetime.strftime(row[1], datetime_format), str(row[2]))
         processed_rows.append(tuple_to_append)
     # 10/22/25 4:08:36 PM for time format. note the lack of a leading 0 for the hour and two digit year!
-    for row in row_gen:                    
+    for row in row_gen:               
             row_values: tuple[str, str, int] = (row['Queue Name'], str(row['Call Time']), row['Phone Number'])
             if row_values in processed_rows:
                 print(row_values)
