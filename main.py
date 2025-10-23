@@ -16,7 +16,6 @@ from datetime import datetime
 from pydantic import BaseModel
 import socket
 
-
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static") #logo and favicon go here
 
@@ -27,7 +26,6 @@ input_file = 'temp_files\\temp_file.csv'
 
 class SelectedRows(BaseModel):
     selectedRows: List[Tuple[str, str]]
-
 
 @app.on_event("startup")
 async def startup_event():
@@ -42,7 +40,7 @@ async def clinic_selection(request: Request) -> HTMLResponse:
     cur = con.cursor()
     html_content = ''' <!DOCTYPE html>
 <html>
-<head><meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->>
+<head><meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->
 <style>
 	body {
 		margin: 0;
@@ -177,7 +175,9 @@ async def clinic_list(request: Request, queue: str):
         <link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
         <body>
         <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-        <div><h2>Abandoned Call Log for %s (as of %s) on %s</h2></div>        
+        <div><h2>Abandoned Call Log for %s (as of %s) on %s</h2></div> 
+        <div>When you return a call, check the box next to the call you returned, then click "Submit" <b>ONLY ONCE</b>.</div>
+        <div>It may take a second or two for the page to reload and for your submissions to be reflected, so please be patient.</div>       
         <div>When the last call is cleared, you will be taken back to the Queue Selection page.</div>
         <br>
         <div>If you don't see the "Submit" button, try scrolling down.</div>
@@ -219,6 +219,7 @@ async def clinic_list(request: Request, queue: str):
         html_content += '''</table>
         <div><input type="submit" id="submitbtn" value="Submit"></div>
         </form>
+        <div><a href="/">Go back to queue selection</a></div>
         <script>
             
                 document.getElementById("dynamicForm").addEventListener("submit", async (event) => {
@@ -495,15 +496,25 @@ async def process_file(file: UploadFile):
     cur = con.cursor()        
     cur.execute("SELECT queue, time, phone FROM missedcalls;")
     cached_rows: list[tuple] = cur.fetchall()
-
+    processed_rows = []
+    datetime_format = "%m/%d/%y %#I:%M:%S %p"
+    for row in cached_rows:
+        tuple_to_append = (row[0], datetime.strftime(row[1], datetime_format), int(row[2]))
+        processed_rows.append(tuple_to_append)
+    # 10/22/25 4:08:36 PM for time format. note the lack of a leading 0 for the hour and two digit year!
     for row in row_gen:
-        if (row['Queue Name'], row['Call Time'], row['Phone Number']) in cached_rows:
+        try:
+            row_values: tuple[str, str, int] = (row['Queue Name'], str(row['Call Time']), int(row['Phone Number']))
+            if row_values in processed_rows:
+                continue
+            else:
+                if row['Contact Disposition'] in {'1', '1.0'}:            
+                    QUERY = "INSERT into missedcalls (queue, time, phone) VALUES (%s, %s, %s);"
+                    DATA = (row['Queue Name'], row['Call Time'], int(row['Phone Number']))
+                    cur.execute(QUERY, DATA)
+        except Exception as e:
+            print("Phone number was not an int\n", row)
             continue
-        else:
-            if row['Contact Disposition'] == '1' or row['Contact Disposition'] == '1.0':
-                QUERY = "INSERT into missedcalls (queue, time, phone) VALUES (%s, %s, %s);"
-                DATA = (row['Queue Name'], row['Call Time'], row['Phone Number'])
-                cur.execute(QUERY, DATA)
     cur.close()
     con.commit()
     con.close()
@@ -579,15 +590,13 @@ async def clear_calls(request: Request, data: SelectedRows):
     QUERY = "UPDATE missedcalls SET returned = True, returned_on = CURRENT_TIMESTAMP(0), ip_address = %s, hostname = %s WHERE (time = %s AND phone = %s);"
     
     for call in selected_rows:
-        print(call)
         DATA = (client_ip, hostname, call[0], call[1])
         cur.execute(QUERY, DATA)
 
     cur.close()
     con.commit()
 
-    return HTMLResponse(content="How did you see this?")
-
+    return HTMLResponse(content="How did you see this? Tell Clay what you did to get to this message!")
 
 def get_hostname(ip_address):
     try:
