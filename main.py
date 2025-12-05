@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import socket
 from icecream import ic
 from urology_aid import handle_xlsx
+import math
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static") #logo and favicon go here
@@ -24,14 +25,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static") #logo and f
 HEADERS = ['Queue Name', 'Call Time', 'Contact Disposition', 'Phone Number']
 CONFIG = toml.load("./config.toml") # load variables from toml file
 CONNECT_STR = f'dbname = {CONFIG['credentials']['dbname']} user = {CONFIG['credentials']['username']} password = {CONFIG['credentials']['password']} host = {CONFIG['credentials']['host']}'
-input_file = 'temp_files\\temp_file.csv'
 
-class UrologyStats():
-    calls_presented: int = 0
-    calls_handled: int = 0
-    presented_dict: dict = {}
-    handled_dict: dict = {}
-    input_file = 'temp_files\\temp_file.csv'
+class InputSpreadsheet():
+    input_file: str = 'temp_files\\temp_file.csv'
 
 class SelectedRows(BaseModel):
     selectedRows: List[Tuple[str, str]]
@@ -286,6 +282,159 @@ async def clinic_list(request: Request, queue: str):
         return HTMLResponse(content=html_content)
     except:
         return HTMLResponse(content="No missed calls here!")
+
+@app.get("/dashboard")
+async def get_dashboard(request: Request) -> HTMLResponse:
+    html_content = """
+    <html>
+        <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Oxygen+Mono&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+            <meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->
+            
+            <style>
+
+             .nabla-1 {
+  font-family: "Roboto", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: <weight>;
+  font-style: normal;
+  font-variation-settings:
+    "wdth" 100;
+}
+
+            h2 {
+            font-size: 40px;
+            }
+            body {
+		margin: 0;
+        padding: 0;
+		place-items: center;
+		background-color: lightgray;
+	}
+	div {
+		text-align: center;
+        line-height: 1;
+        margin: 0;
+        padding: 0;
+	}
+
+	p, button {
+		text-align: center;
+        margin: 0;
+        padding: 0;
+        line-height: 1;
+	}
+
+    th, tr {
+    padding-right: 15;
+    text-align: center;
+    vertical-align: middle;
+    border: solid;
+    font-size: 24px;
+    justify-content: center;
+    }
+
+    td {
+    background-color: white;
+    border: 2px solid;
+    white-space: pre-line;
+    text-align : center;}
+
+    .table-container {
+    display: flex; 
+    justify-content: center; 
+    gap: 40px; 
+    margin-top: 20px; 
+    align-items: flex-start;
+
+            </style>
+
+            <title>Abandoned Call Recovery Dashboard</title>
+        </head>
+        <link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
+        <body class= "nabla-1">
+        <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
+        <div><h2>Daily Call Recovery Statistics (as of %s)</h2></div>
+        <div class="table-container">
+<table>
+<caption style = "font-size: 24px;"><b>Queue Performance</b></caption>
+                <tr>
+                    <th>Queue</th>
+                    <th>Abandoned Calls</th>
+                    <th>Returned Calls</th>
+                    <th>Return Rate</th>
+                </tr>
+    """ % (datetime.now().strftime("%I:%M %p"),) 
+
+    con = psycopg2.connect(CONNECT_STR)
+    cur = con.cursor()
+
+    QUERY = """SELECT 
+            queue,
+            COUNT(*) AS missed_calls,
+            COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
+            FROM
+            missedcalls
+            WHERE date(time) = CURRENT_DATE
+            GROUP BY queue;
+            """
+    cur.execute(QUERY)
+    results = cur.fetchall()
+    for result in results:
+        if math.ceil(100 * (result[2] / result[1])) >= 90:
+            color = 'green'
+        else:
+            color = 'red'
+        html_content += f"""
+                <tr>
+                    <td>{result[0]}</td>
+                    <td>{result[1]}</td>
+                    <td>{result[2]}</td>
+                    <td style = "color: {color};">{math.ceil(100 * (result[2] / result[1]))}%</td
+                </tr>
+        """
+
+    html_content += """
+            </table> 
+            <table>
+                <caption style = "font-size: 24px;"><b>Overall Call Center Performance</b></caption>
+                <tr>
+                    <th>Abandoned Calls</th>
+                    <th>Returned Calls</th>
+                    <th>Rate</th>
+                </tr>"""
+    
+    QUERY = """SELECT
+            COUNT(*) as missed_calls,
+            COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
+            FROM
+            missedcalls
+            WHERE date(time) = CURRENT_DATE;
+            """
+    
+    cur.execute(QUERY)
+    results = cur.fetchall()
+    
+    for result in results:
+        html_content += f"""
+                <tr>
+                    <td>{result[0]}</td>
+                    <td>{result[1]}</td>
+                    <td>{math.ceil(100 * (result[1] / result[0]))}%</td>
+                </tr>                        
+            """    
+    
+    html_content += """
+                    </table> </div>
+                        </body>
+                        <!-- Clay was here! :) -->
+                    </html>
+                    """
+    cur.close()
+    return HTMLResponse(content=html_content)
+
 # where I upload the spreadsheet that has all the abandoned calls 
 @app.get("/upload")
 async def upload_calls(request: Request) -> HTMLResponse:
@@ -472,6 +621,7 @@ async def upload_calls(request: Request) -> HTMLResponse:
 @app.post("/process", response_class=HTMLResponse)
 async def process_file(file: UploadFile):
     if file.filename[-1] == 'x' and file.filename[:5] != 'Agent':
+        InputSpreadsheet.input_file = 'temp_files\\temp_file.csv'
         if not os.path.exists(f'temp_files\\{file.filename}'):
             try:
                 contents = await file.read()
@@ -496,7 +646,7 @@ async def process_file(file: UploadFile):
                 elif row not in input_rows:
                     input_rows.append(row)
 
-            with open('temp_files\\temp_file.csv', 'w', newline='') as temp:
+            with open(InputSpreadsheet.input_file, 'w', newline='') as temp:
                 writer = csv.writer(temp)
                 for row in input_rows:
                     writer.writerow(row)
@@ -512,13 +662,13 @@ async def process_file(file: UploadFile):
             finally:
                 await file.close()
         handle_xlsx(f"temp_files\\{file.filename}")
-        UrologyStats.input_file = "temp_files\\urology_output.csv"
+        InputSpreadsheet.input_file = "temp_files\\urology_output.csv"
     
     if file.filename[-1] == 'v':
          if not os.path.exists(f'temp_files\\{file.filename}'):
             try:
                 contents = await file.read()
-                async with aiofiles.open("temp_files\\temp_file.csv", 'wb') as f: # type: ignore
+                async with aiofiles.open(InputSpreadsheet.input_file, 'wb') as f: # type: ignore
                     await f.write(contents)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f'Something went wrong. Tell Clay! {e}')
@@ -526,7 +676,7 @@ async def process_file(file: UploadFile):
                 await file.close()
 
     def row_generator() -> Generator:     
-        with open(UrologyStats.input_file, 'r', encoding='utf-8-sig') as csvfile:
+        with open(InputSpreadsheet.input_file, 'r', encoding='utf-8-sig') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 try:
@@ -547,7 +697,6 @@ async def process_file(file: UploadFile):
         processed_rows.append(tuple_to_append)
     # 10/05/25 4:08:36 PM for time format. note the lack of a leading 0 for the hour and two digit year!
     for row in row_gen:
-            ic(UrologyStats.input_file)
             row_values: tuple[str, str, int] = (row['Queue Name'], str(row['Call Time']), row['Phone Number'])      
             if row_values in processed_rows:
                 print("Call already in database:", row_values)
