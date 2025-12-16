@@ -140,12 +140,15 @@ async def clinic_list(request: Request, queue: str):
 
     html_content = """
     <html>
+    <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
         <head>
             <meta http-equiv="refresh" content="600"> <!-- Auto-refresh every 10 minutes -->
         <style>
+
     h2 {
     font-size: 40px;
     }
+
     body {
 		margin: 0;
         padding: 0;
@@ -177,28 +180,78 @@ async def clinic_list(request: Request, queue: str):
     background-color: white;
     border: 2px solid;
     white-space: pre-line;
-    text-align : center;}
+    text-align : center;
+    }
+
+    a.button {
+    position: sticky;
+    top: 25px;
+    z-index: 10;
+    display: flex;
+    padding: 1px 6px;
+    border: 1px outset buttonborder;
+    border-radius: 3px;
+    color: black;
+    background-color: white;
+    text-decoration: none;
+}
+
+    .page-header {
+    /* Actual height of table header */
+    height: 150px; 
+    }
+
+    .table-header {
+    position: sticky;
+    top: 0px;
+    background-color: lightgray; /* Add a background color so content scrolls behind it */
+    z-index: 10;
+    }
+
+    .overall-container {
+    position: sticky;
+    top: 25px;
+    background-color: lightgray; /* Add a background color so content scrolls behind it */
+    z-index: 10;
+    }
+
+    .table-container {
+    display: flex; 
+    justify-content: center; 
+    gap: 40px; 
+    margin-top: 20px; 
+    align-items: flex-start;
+    }
+
+    #submitbtn {
+    }
 
             </style>
             <title>%s Missed Calls</title>
         </head>
         <link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
         <body>
+        <div class = "page-header>
         <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-        <div><h2>Abandoned Call Log for %s (as of %s) on %s</h2></div> 
+        <div><h2>Abandoned Call Log for %s (as of %s) on %s</h2></div>
+        </div>
+
+        <div>The phone numbers are clickable, you just need to make sure to select "Open with Cisco Jabber" and confirm that you want to dial the phone number.</div>
         <div>When you return a call, check the box next to the call you returned, then click "Submit" <b>ONLY ONCE</b>.</div>
         <div>It may take a second or two for the page to reload and for your submissions to be reflected, so please be patient.</div>       
         <div>When the last call is cleared, you will be taken back to the Queue Selection page.</div>
+        
         <br>
         <div>If you don't see the "Submit" button, try scrolling down.</div>
         <br>
+        <div class = "table-container">
         <form id="dynamicForm" method="post" action="/clearcalls">
-<table style="text-align: center; align-items: center;">
+        <table style="text-align: center; align-items: center;">
                 <tr>
-                    <th>Queue Name(s)</th>
-                    <th>Date and Time of Call</th>
-                    <th>Phone Number</th>
-                    <th>Returned?</th>
+                    <th class = "table-header">Queue Name(s)</th>
+                    <th class = "table-header">Date and Time of Call</th>
+                    <th class = "table-header">Phone Number</th>
+                    <th class = "table-header">Returned?</th>
                 </tr>
     """ % (queue, queue, datetime.now().strftime("%I:%M %p"), datetime.today().strftime("%m/%d/%Y"))
 
@@ -225,68 +278,175 @@ async def clinic_list(request: Request, queue: str):
                         <tr>                        
                             <td>{call[0]}</td>
                             <td>{call[1]}</td>
-                            <td>{call[2]}</td>
+                            <td><a href="tel:{call[2]}">{call[2]}</a></td>
                             <td> <input type="checkbox" data-id="{call[1]}" name="selectedRows"  data-name="{call[2]}">
                 <label for="returned"></label><br></td>
                         </tr>
                 """
-        html_content += '''</table>
+    
+        html_content += f'''</table>
         <div><input type="submit" id="submitbtn" value="Submit"></div>
         </form>
-        <div><a href="/">Go back to queue selection</a></div>
-        <script>
-            
-                document.getElementById("dynamicForm").addEventListener("submit", async (event) => {
-        event.preventDefault(); 
+        <div class = "overall-container"><a class = "button" href="/">Go back to queue selection</a></div>
+         <div class = "overall-container">
+            <table                          >
+                <caption style = "font-size: 24px;"><b>{queue} Performance for Today</b></caption>
+                <tr>
+                    <th>Abandoned Calls</th>
+                    <th>Returned Calls</th>
+                    <th>Rate</th>
+                </tr>'''
+    
+        QUERY = """SELECT
+                COUNT(*) as missed_calls,
+                COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
+                FROM
+                missedcalls
+                WHERE (date(time) = CURRENT_DATE AND queue = %s);
+                """
 
-            // Collect checked checkboxes
-            const checkboxes = document.querySelectorAll('input[name="selectedRows"]:checked');
-            const selectedData = Array.from(checkboxes).map(checkbox => [
-                checkbox.dataset.id,
-                checkbox.dataset.name
-            ]);
+        DATA = (queue, )
+        cur.execute(QUERY, DATA)
+        results = cur.fetchall()
+        
+        for result in results:
+            return_rate = "-"
+            if result[0] != 0:
+                return_rate = math.ceil(100 * (result[1] / result[0]))
+            html_content += f"""
+                    <tr>
+                        <td>{result[0]}</td>
+                        <td>{result[1]}</td>
+                        <td>{return_rate}%</td>
+                    </tr>                        
+                    """
+        html_content += """ 
+        </table>
+                    <br><br>
+                    <div style="background-color: lightgray;" id="myGauge"></div> </div>
+        <script>                
+            var currentValue = %s;
 
-            // Get the form's action URL
-            const form = document.getElementById("dynamicForm");
-            const endpoint = form.action;
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
+            var data = [{
+                domain: { x: [0, 1], y: [0, 1] },
+                value: currentValue,
+                // Update the title format with the actual value if needed
+                title: { text: "Call Recovery Rate"}, 
+                type: "indicator",
+                mode: "gauge+number",
+                gauge: {
+                    axis: {
+                        range: [0, 100], // Set the range from 0 to 100
+                        tickvals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
                     },
-                    body: JSON.stringify({ selectedRows: selectedData })
-                });
+                    bar: {color: "black", thickness: 0.1},
+                    steps: [
+                        { range: [0, 70],   color: "red"},
+                        { range: [70, 90],  color: "orange" },
+                        { range: [90, 100], color: "green" }	
+                    ],
+                    threshold: {
+                        line: { color: "black", width: 4 },
+                        thickness: 0.75,
+                        value: 90 // Optional: a target threshold
+                    }
+                }
+            }];
 
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log("Server response:", result);
-                    window.location.href = window.location.href;
-                    // Optionally redirect or update UI based on response
-                } else {
-                    console.error("Error submitting data:", response.statusText);
+            function valueToRadians(value) {
+                // Reverses the direction (180 deg at 0 value, 0 deg at 100 value)
+                return (Math.PI - ((value / 100) * Math.PI) );
+            }
+
+            var angle = valueToRadians(currentValue);
+
+            // Define the length of the arrow (normalized coordinates)
+            var needleLength = 0.45; // Slightly shorter
+            
+            // Define the origin point Y for the base of the arrow
+            var originY = 0.25; 
+
+            // Calculate the end points of the arrow based on the angle
+            var arrowEndX = 0.5 + (needleLength * Math.cos(angle));
+            var arrowEndY = originY + (needleLength * Math.sin(angle));
+
+            // Chart layout configuration
+            var layout = {
+                width:  500,
+                height: 500,
+                yaxis: { scaleanchor: "x" },
+                margin: { t: 30, b: 30, l: 30, r: 30 },
+                paper_bgcolor: "transparent",
+                annotations: [{
+                    x: arrowEndX, 
+                    y: arrowEndY, 
+                    xref: 'paper',
+                    yref: 'paper',
+                    ax: 0.5, 
+                    ay: originY, 
+                    axref: 'paper',
+                    ayref: 'paper',
+                    showarrow: true,
+                    arrowhead: 3, 
+                    arrowsize: 1,
+                    arrowwidth: 3,
+                    arrowcolor: 'black',
+                    standoff: 0 
+                }]
+            };
+
+            // Render the gauge chart
+            Plotly.newPlot('myGauge', data, layout);
+
+                    document.getElementById("dynamicForm").addEventListener("submit", async (event) => {
+            event.preventDefault(); 
+
+                // Collect checked checkboxes
+                const checkboxes = document.querySelectorAll('input[name="selectedRows"]:checked');
+                const selectedData = Array.from(checkboxes).map(checkbox => [
+                    checkbox.dataset.id,
+                    checkbox.dataset.name
+                ]);
+
+                // Get the form's action URL
+                const form = document.getElementById("dynamicForm");
+                const endpoint = form.action;
+
+                try {
+                    const response = await fetch(endpoint, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({ selectedRows: selectedData })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log("Server response:", result);
+                        window.location.href = window.location.href;
+                        // Optionally redirect or update UI based on response
+                    } else {
+                        console.error("Error submitting data:", response.statusText);
+                        window.location.href = window.location.href;
+                    }
+                } catch (error) {
+                    console.error("Network error:", error);
                     window.location.href = window.location.href;
                 }
-            } catch (error) {
-                console.error("Network error:", error);
-                window.location.href = window.location.href;
-            }
-        });
-
-        </script>
-        </body>
-    </html>
-
-        '''
+            });
+            </script>
+            </body>
+        </html>""" % (return_rate, )
         return HTMLResponse(content=html_content)
     except:
-        return HTMLResponse(content="No missed calls here!")
+        return HTMLResponse(content="No missed calls here!")    
 
 @app.get("/dashboard")
 async def get_dashboard(request: Request) -> HTMLResponse:
     html_content = """
     <html>
+        <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
         <head>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -342,29 +502,50 @@ async def get_dashboard(request: Request) -> HTMLResponse:
     white-space: pre-line;
     text-align : center;}
 
+    .page-header {
+    /* Actual height of table header */
+    height: 150px; 
+    }
+
+    .table-header {
+    position: sticky;
+    top: 0px;
+    background-color: lightgray; /* Add a background color so content scrolls behind it */
+    z-index: 10;
+    }
+
+    .overall-container {
+    position: sticky;
+    top: 25px;
+    background-color: lightgray; /* Add a background color so content scrolls behind it */
+    z-index: 10;
+    }
+
     .table-container {
     display: flex; 
     justify-content: center; 
     gap: 40px; 
     margin-top: 20px; 
     align-items: flex-start;
-
+    }
             </style>
 
             <title>Abandoned Call Recovery Dashboard</title>
         </head>
-        <link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
-        <body class= "nabla-1">
+        <link rel ="icon" type = "image/x-icon" href="/static/favicon.ico">
+        <body class = "nabla-1">
+    <div class = "page-header">
         <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-        <div><h2>Daily Call Recovery Statistics (as of %s)</h2></div>
+        <div><h2>Daily Call Recovery Statistics (as of %s)</h2></div> 
+    </div>
         <div class="table-container">
 <table>
 <caption style = "font-size: 24px;"><b>Queue Performance</b></caption>
                 <tr>
-                    <th>Queue</th>
-                    <th>Abandoned Calls</th>
-                    <th>Returned Calls</th>
-                    <th>Return Rate</th>
+                    <th class = "table-header">Queue</th>
+                    <th class = "table-header">Abandoned Calls</th>
+                    <th class = "table-header">Returned Calls</th>
+                    <th class = "table-header">Return Rate</th>
                 </tr>
     """ % (datetime.now().strftime("%I:%M %p"),) 
 
@@ -398,7 +579,8 @@ async def get_dashboard(request: Request) -> HTMLResponse:
 
     html_content += """
             </table> 
-            <table>
+            <div class = "overall-container">
+            <table                          >
                 <caption style = "font-size: 24px;"><b>Overall Call Center Performance</b></caption>
                 <tr>
                     <th>Abandoned Calls</th>
@@ -418,20 +600,101 @@ async def get_dashboard(request: Request) -> HTMLResponse:
     results = cur.fetchall()
     
     for result in results:
+        return_rate = "-"
+        if result[0] != 0:
+            return_rate = math.ceil(100 * (result[1] / result[0]))
         html_content += f"""
                 <tr>
                     <td>{result[0]}</td>
                     <td>{result[1]}</td>
-                    <td>{math.ceil(100 * (result[1] / result[0]))}%</td>
+                    <td>{return_rate}%</td>
                 </tr>                        
             """    
     
     html_content += """
-                    </table> </div>
+                    </table>
+                    <br><br>
+                    <div style="background-color: lightgray;" id="myGauge"></div> </div>
+
+    <script>
+        var currentValue = %s;
+
+         var data = [{
+            domain: { x: [0, 1], y: [0, 1] },
+            value: currentValue,
+            // Update the title format with the actual value if needed
+            title: { text: "Call Recovery Rate"}, 
+            type: "indicator",
+            mode: "gauge+number",
+            gauge: {
+                axis: {
+                    range: [0, 100], // Set the range from 0 to 100
+                    tickvals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+                },
+                bar: {color: "black", thickness: 0.1},
+                steps: [
+                    { range: [0, 70],   color: "red"},
+                    { range: [70, 90],  color: "orange" },
+		            { range: [90, 100], color: "green" }	
+                ],
+                threshold: {
+                    line: { color: "black", width: 4 },
+                    thickness: 0.75,
+                    value: 90 // Optional: a target threshold
+                }
+            }
+        }];
+
+        function valueToRadians(value) {
+            // Reverses the direction (180 deg at 0 value, 0 deg at 100 value)
+            return (Math.PI - ((value / 100) * Math.PI) );
+        }
+
+        var angle = valueToRadians(currentValue);
+
+        // Define the length of the arrow (normalized coordinates)
+        var needleLength = 0.45; // Slightly shorter
+        
+        // Define the origin point Y for the base of the arrow
+        var originY = 0.25; 
+
+        // Calculate the end points of the arrow based on the angle
+        var arrowEndX = 0.5 + (needleLength * Math.cos(angle));
+        var arrowEndY = originY + (needleLength * Math.sin(angle));
+
+        // Chart layout configuration
+        var layout = {
+            width:  500,
+            height: 500,
+            yaxis: { scaleanchor: "x" },
+            margin: { t: 30, b: 30, l: 30, r: 30 },
+            paper_bgcolor: "transparent",
+            annotations: [{
+                x: arrowEndX, 
+                y: arrowEndY, 
+                xref: 'paper',
+                yref: 'paper',
+                ax: 0.5, 
+                ay: originY, 
+                axref: 'paper',
+                ayref: 'paper',
+                showarrow: true,
+                arrowhead: 3, 
+                arrowsize: 1,
+                arrowwidth: 3,
+                arrowcolor: 'black',
+                standoff: 0 
+            }]
+        };
+
+
+        // Render the gauge chart
+        Plotly.newPlot('myGauge', data, layout);
+    </script>
                         </body>
                         <!-- Clay was here! :) -->
                     </html>
-                    """
+                    """ % (return_rate, )
     cur.close()
     return HTMLResponse(content=html_content)
 
@@ -719,8 +982,8 @@ async def process_file(file: UploadFile):
 
     try:
         files = os.listdir("temp_files")
-        for file in files:
-            os.remove(f'temp_files\\{file}')
+        for x in files:
+            os.remove(f'temp_files\\{x}')
     except:
         pass
     if rows_added == 0:
