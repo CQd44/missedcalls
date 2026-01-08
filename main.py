@@ -223,9 +223,6 @@ async def clinic_list(request: Request, queue: str):
     align-items: flex-start;
     }
 
-    #submitbtn {
-    }
-
             </style>
             <title>%s Missed Calls</title>
         </head>
@@ -290,7 +287,7 @@ async def clinic_list(request: Request, queue: str):
         <div class = "overall-container"><a class = "button" href="/">Go back to queue selection</a></div>
          <div class = "overall-container">
             <table                          >
-                <caption style = "font-size: 24px;"><b>{queue} Performance for Today</b></caption>
+                <caption style = "font-size: 24px;"><b>{queue} Performance for the Week</b></caption>
                 <tr>
                     <th>Abandoned Calls</th>
                     <th>Returned Calls</th>
@@ -302,7 +299,10 @@ async def clinic_list(request: Request, queue: str):
                 COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
                 FROM
                 missedcalls
-                WHERE (date(time) = CURRENT_DATE AND queue = %s);
+                WHERE (queue = %s
+                AND
+                (date(time) >= date_trunc('week', CURRENT_DATE)
+        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'));
                 """
 
         DATA = (queue, )
@@ -360,10 +360,10 @@ async def clinic_list(request: Request, queue: str):
 
             var angle = valueToRadians(currentValue);
 
-            // Define the length of the arrow (normalized coordinates)
+            // length of the arrow (normalized coordinates)
             var needleLength = 0.45; // Slightly shorter
             
-            // Define the origin point Y for the base of the arrow
+            // origin point Y for the base of the arrow
             var originY = 0.25; 
 
             // Calculate the end points of the arrow based on the angle
@@ -397,47 +397,47 @@ async def clinic_list(request: Request, queue: str):
 
             // Render the gauge chart
             Plotly.newPlot('myGauge', data, layout);
+            </script>
 
-                    document.getElementById("dynamicForm").addEventListener("submit", async (event) => {
-            event.preventDefault(); 
+            <script>
+                   document.getElementById("dynamicForm").addEventListener("submit", async (event) => {
+        event.preventDefault(); 
 
-                // Collect checked checkboxes
-                const checkboxes = document.querySelectorAll('input[name="selectedRows"]:checked');
-                const selectedData = Array.from(checkboxes).map(checkbox => [
-                    checkbox.dataset.id,
-                    checkbox.dataset.name
-                ]);
+            const checkboxes = document.querySelectorAll('input[name="selectedRows"]:checked');
+            const selectedData = Array.from(checkboxes).map(checkbox => [
+                checkbox.dataset.id,
+                checkbox.dataset.name
+            ]);
 
-                // Get the form's action URL
-                const form = document.getElementById("dynamicForm");
-                const endpoint = form.action;
+            const form = document.getElementById("dynamicForm");
+            const endpoint = form.action;
 
-                try {
-                    const response = await fetch(endpoint, {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({ selectedRows: selectedData })
-                    });
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ selectedRows: selectedData })
+                });
 
-                    if (response.ok) {
-                        const result = await response.json();
-                        console.log("Server response:", result);
-                        window.location.href = window.location.href;
-                        // Optionally redirect or update UI based on response
-                    } else {
-                        console.error("Error submitting data:", response.statusText);
-                        window.location.href = window.location.href;
-                    }
-                } catch (error) {
-                    console.error("Network error:", error);
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log("Server response:", result);
+                    window.location.href = window.location.href;
+                    // Optionally redirect or update UI based on response
+                } else {
+                    console.error("Error submitting data:", response.statusText);
                     window.location.href = window.location.href;
                 }
-            });
+            } catch (error) {
+                console.error("Network error:", error);
+                window.location.href = window.location.href;
+            }
+        });
             </script>
             </body>
-        </html>""" % (return_rate, )
+        </html>""" % (return_rate, )        
         return HTMLResponse(content=html_content)
     except:
         return HTMLResponse(content="No missed calls here!")    
@@ -536,7 +536,7 @@ async def get_dashboard(request: Request) -> HTMLResponse:
         <body class = "nabla-1">
     <div class = "page-header">
         <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-        <div><h2>Daily Call Recovery Statistics (as of %s)</h2></div> 
+        <div><h2>Week to Date Call Recovery Statistics (as of %s)</h2></div> 
     </div>
         <div class="table-container">
 <table>
@@ -558,7 +558,8 @@ async def get_dashboard(request: Request) -> HTMLResponse:
             COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
             FROM
             missedcalls
-            WHERE date(time) = CURRENT_DATE
+            WHERE (date(time) >= date_trunc('week', CURRENT_DATE)
+        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')
             GROUP BY queue;
             """
     cur.execute(QUERY)
@@ -581,7 +582,7 @@ async def get_dashboard(request: Request) -> HTMLResponse:
             </table> 
             <div class = "overall-container">
             <table                          >
-                <caption style = "font-size: 24px;"><b>Overall Call Center Performance</b></caption>
+                <caption style = "font-size: 24px;"><b>Week to Date Overall Call Center Performance</b></caption>
                 <tr>
                     <th>Abandoned Calls</th>
                     <th>Returned Calls</th>
@@ -593,7 +594,8 @@ async def get_dashboard(request: Request) -> HTMLResponse:
             COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
             FROM
             missedcalls
-            WHERE date(time) = CURRENT_DATE;
+            WHERE (date(time) >= date_trunc('week', CURRENT_DATE)
+        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days');
             """
     
     cur.execute(QUERY)
@@ -1048,6 +1050,7 @@ async def run_report(month_from: int = Form(...), day_from: int = Form(...), yea
 
 @app.post("/clearcalls", response_class=HTMLResponse)
 async def clear_calls(request: Request, data: SelectedRows):
+    print(data)
     client_ip = request.client.host
     hostname = get_hostname(client_ip)
     selected_rows = data.selectedRows

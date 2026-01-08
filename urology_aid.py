@@ -1,9 +1,5 @@
 import csv
-import easygui
 from icecream import ic
-import datetime
-import os
-import aiofiles
 import openpyxl
 
 def handle_xlsx(input):
@@ -42,9 +38,6 @@ def handle_xlsx(input):
                 handled_dict[row['Call Start Time']] = row['Call ANI']
             previous_row = row
 
-    ic(calls_presented)
-    ic(calls_handled)
-
     presented_numbers: list[str] = list(presented_dict.values())
     handled_numbers: list[str] = list(handled_dict.values())
     abandoned_numbers:dict[str, str] = {}
@@ -57,13 +50,9 @@ def handle_xlsx(input):
                     call_time = time
             abandoned_numbers[call_time] = number
 
-    ic(len(abandoned_numbers))
-
     with open("temp_Files\\urology_output.csv", 'w', newline='') as output:
         writer = csv.writer(output)
         header = ['Queue Name', 'Call Time', 'Phone Number', 'Contact Disposition']
         writer.writerow(header)
         for time in abandoned_numbers.keys():
             writer.writerow(['URO_SCHL_CSQ', time, abandoned_numbers[time], '1'])
-
-#handle_xlsx(input_xlsx)
