@@ -45,70 +45,161 @@ async def clinic_selection(request: Request) -> HTMLResponse:
     cur = con.cursor()
     html_content = ''' <!DOCTYPE html>
 <html>
-<head><meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->
-<style>
-	body {
-		margin: 0;
-		display: grid;
-		min-height: 10vh;
-		place-items: center;
-		background-color: lightgray;
-	}
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="300">
+    <title>Queue Selection</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link href="https://fonts.googleapis.com" rel="stylesheet">
+    <style>
+        :root {
+            --brand-primary: #00a9a7;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #334155;
+            --border: #e2e8f0;
+        }
 
-	div {
-		text-align: center;
-	}
+        body {
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Roboto', sans-serif;
+            line-height: 1.6;
+        }
 
-	input[type="submit"] {
-	display: block;
-	margin: 0 auto;
-	}
+        .logo-container {
+            text-align: center;
 
-	input[type="text"] {
-	display: block;
-	margin: 0 auto;
-	}
+            width: 100%;
+            margin-bottom: 10px;
+        }
 
-	textarea[name="instructions"] {
-	display: block;
-	margin: 0 auto;
-	}
+        h1 {
+            color: var(--brand-primary);
+            font-size: 2rem;
+            margin-bottom: 20px;
+        }
 
-	textarea {
-  width: 320px;
-  height: 100px;
-	}
+        /* Consistent Card Style */
+        .queue-card {
+            background: var(--card-bg);
+            padding: 2.5rem;
+            border-radius: 12px;
+            border-top: 4px solid var(--brand-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 700px;
+            text-align: center;
+        }
 
-	input[type="number"] {
-	display: block;
-	margin: 0 auto;
-	}
+        .info-text {
+            font-size: 0.95rem;
+            color: #64748b;
+            text-align: left;
+            margin-bottom: 25px;
+            background-color: #f1f5f9;
+            padding: 20px;
+            border-radius: 8px;
+        }
 
-	.queue {
-	display: block;
-	margin: 0 auto;
-	}
-		</style>
-<title>Queue Selection</title></head>
-<link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
+        .info-text p {
+            margin: 10px 0;
+        }
+
+        /* Form Elements */
+        label {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--brand-primary);
+        }
+
+        select.queue {
+            width: 100%;
+            max-width: 400px;
+            padding: 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            margin-bottom: 20px;
+            background-color: white;
+            outline-color: var(--brand-primary);
+        }
+
+        input[type="submit"] {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: var(--brand-primary);
+            color: white;
+            border: 2px solid var(--brand-primary);
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 1rem;
+        }
+
+        input[type="submit"]:hover {
+            background-color: white;
+            color: var(--brand-primary);
+        }
+
+        .card-footer {
+    margin-top: 15px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border); /* Subtle divider line */
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+/* Updated button style for the footer */
+.button-footer {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: var(--brand-primary);
+    color: white !important;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    width: 80%; /* Makes the button nice and clickable */
+    text-align: center;
+}
+
+.button-footer:hover {
+    background-color: #008f8d; /* Slightly darker teal on hover */
+    transform: translateY(-1px);
+}
+    </style>
+</head>
+
 <body>
-    <h1>Queue Selection</h1>
-	<div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "50%" height = "50%"></div>
-    <div>
-    <p>Please select your queue from the dropdown list. If your queue isn't listed, it currently doesn't have any calls to return, but please check back later.</p>
-    <p>New calls are uploaded to this page every morning when I (Clay) get to work, again at 11 AM, and then once more at 4 PM.</p>
-    <p>The first upload catches the previous day's abandoned calls from 4-5 PM, the next one captures the current day's abandoned calls up to 11 AM, 
-    and then of course the final upload of the day captures the calls between 11 AM and 4 PM.</p>
-    <p>This page also refreshes automatically every 5 minutes.</p>
-    <p>Queue:</p>
+    <div class="logo-container">
+        <img src="/static/dhr-logo.png" alt="DHR Logo" width="320px">
     </div>
-	<form method="get" action="/getlist">
-		
-		<select name="queue" id="queue" class="queue">
+
+    <h1>Call Recovery Queue Selection</h1>
+
+    <div class="queue-card">
+        <div class="info-text">
+            <p>Please select your queue from the dropdown list. This tool only shows missed calls from the <strong>current day</strong>.</p>
+            <p>If your queue isn't listed, it currently doesn't have any calls to return, but please check back later.</p>
+            <p><small>Note: Calls are refreshed hourly. This page auto-refreshes every 5 minutes.</small></p>
+        </div>
+
+        <form method="get" action="/getlist">
+            <label for="queue">Select Queue:</label>
+            <select name="queue" id="queue" class="queue">
 '''
 
-    QUERY = '''SELECT DISTINCT(queue) FROM missedcalls WHERE (returned = False AND (date(time) >= date_trunc('week', CURRENT_DATE)
-        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'));'''
+    QUERY = '''SELECT DISTINCT(queue) FROM missedcalls WHERE (returned = False AND date(time) = CURRENT_DATE);'''
     cur.execute(QUERY)
     results = cur.fetchall()
     queues = [item[0] for item in results]
@@ -120,6 +211,12 @@ async def clinic_selection(request: Request) -> HTMLResponse:
     html_content += '''</select>
     <input type="submit" id="submitbtn" value="Submit">
     </form>
+    <div class="card-footer">
+        <a class="button-footer" href="/dashboard">Overall Performance Dashboard →</a>
+    </div> 
+    </div>
+    </body>
+    </html>
 '''
    
     return HTMLResponse(content = html_content)
@@ -128,8 +225,7 @@ async def clinic_selection(request: Request) -> HTMLResponse:
 async def clinic_list(request: Request, queue: str):
     con = psycopg2.connect(CONNECT_STR)
     cur = con.cursor()
-    QUERY = '''SELECT * FROM missedcalls WHERE (queue = %s AND returned = False AND (date(time) >= date_trunc('week', CURRENT_DATE)
-        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'));'''
+    QUERY = '''SELECT * FROM missedcalls WHERE (queue = %s AND returned = False AND date(time) = CURRENT_DATE);'''
     DATA = (queue, )
     cur.execute(QUERY, DATA)
     results = cur.fetchall()
@@ -139,126 +235,207 @@ async def clinic_list(request: Request, queue: str):
         return RedirectResponse(url="/")
 
     html_content = """
-    <html>
+    <!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="600">
+    <title>%s Missed Calls</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link href="https://fonts.googleapis.com" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
-        <head>
-            <meta http-equiv="refresh" content="600"> <!-- Auto-refresh every 10 minutes -->
-        <style>
+    <style>
+        :root {
+            --brand-primary: #00a9a7;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #334155;
+            --border: #e2e8f0;
+        }
 
-    h2 {
-    font-size: 40px;
-    }
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Roboto', sans-serif;
+        }
 
-    body {
-		margin: 0;
-        padding: 0;
-		place-items: center;
-		background-color: lightgray;
-	}
-	div {
-		text-align: center;
-        line-height: 1;
-        margin: 0;
-        padding: 0;
-	}
+        /* Sticky Header Section */
+        .page-header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background-color: var(--bg);""" % (queue, )
+    html_content += "width: 100%; text-align: center; padding-bottom: 10px; border-bottom: 1px solid var(--border);        }"
+    html_content += """
+        h2 {
+            color: var(--brand-primary);
+            margin: 5px 0;
+            font-size: 1.8rem;
+        }
 
-	p, button {
-		text-align: center;
-        margin: 0;
-        padding: 0;
-        line-height: 1;
-	}
-    th, tr {
-    padding-right: 15;
-    padding-left: 15;
-    text-align: center;
-    border: solid;
-    font-size: 24px;
-    }
+        .instructions {
+            max-width: 900px;
+            font-size: 0.9rem;
+            color: #64748b;
+            margin: 15px 0;
+            text-align: center;
+        }
 
-    td {
-    background-color: white;
-    border: 2px solid;
-    white-space: pre-line;
-    text-align : center;
-    }
+        /* Layout for the two main cards */
+        .table-container {
+            display: flex;
+            justify-content: center;
+            gap: 25px; """
+    html_content += "width: 100%;max-width: 1400px;align-items: flex-start;flex-wrap: wrap;}"
+    html_content += """
 
-    a.button {
-    position: sticky;
-    top: 25px;
-    z-index: 10;
+        /* Modern Card Styling */
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border-top: 4px solid var(--brand-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .main-log-card { flex: 2; min-width: 600px; }
+        .stats-card { flex: 1; min-width: 350px; position: sticky; top: 180px; }
+
+        /* Table Styling */
+        """
+    html_content += "table {            width: 100%;            border-collapse: collapse;            margin-bottom: 15px;        }"
+    html_content += """
+        th {
+            background-color: #f8fafc;
+            color: var(--brand-primary);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            padding: 12px;
+            border-bottom: 2px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
+            font-size: 0.95rem;
+        }
+
+        /* Submit Button */
+        input[type="submit"] {
+            background-color: var(--brand-primary);
+            color: white;
+            border: 2px solid var(--brand-primary);
+            padding: 10px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        input[type="submit"]:hover {
+            background-color: white;
+            color: var(--brand-primary);
+        }
+
+        /* Go Back Button */
+        a.button {
+            display: inline-block;
+            text-decoration: none;
+            color: var(--brand-primary);
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding: 5px 10px;
+            border: 1px solid var(--brand-primary);
+            border-radius: 6px;
+            transition: 0.2s;
+        }
+
+        a.button:hover {
+            background-color: var(--brand-primary);
+            color: white;
+        }
+
+        .card-footer {
+    margin-top: 15px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border); /* Subtle divider line */
+    width: 100% ;
     display: flex;
-    padding: 1px 6px;
-    border: 1px outset buttonborder;
-    border-radius: 3px;
-    color: black;
-    background-color: white;
-    text-decoration: none;
+    justify-content: center;
 }
 
-    .page-header {
-    /* Actual height of table header */
-    height: 150px; 
-    }
+/* Updated button style for the footer */
+.button-footer {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: var(--brand-primary);
+    color: white !important;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    width: 80%; /* Makes the button nice and clickable */
+    text-align: center;
+}
 
-    .table-header {
-    position: sticky;
-    top: 0px;
-    background-color: lightgray; /* Add a background color so content scrolls behind it */
-    z-index: 10;
-    }
+.button-footer:hover {
+    background-color: #008f8d; /* Slightly darker teal on hover */
+    transform: translateY(-1px);
+}
 
-    .overall-container {
-    position: sticky;
-    top: 25px;
-    background-color: lightgray; /* Add a background color so content scrolls behind it */
-    z-index: 10;
-    }
 
-    .table-container {
-    display: flex; 
-    justify-content: center; 
-    gap: 40px; 
-    margin-top: 20px; 
-    align-items: flex-start;
-    }
+"""
+    html_content+= "#myGauge { width: 100%; height: auto;}"
+    html_content += """
+    </style>
+</head>
 
-            </style>
-            <title>%s Missed Calls</title>
-        </head>
-        <link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
-        <body>
-        <div class = "page-header>
-        <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-        <div><h2>Abandoned Call Log for %s (as of %s) on %s</h2></div>
-        </div>
+<body>
+    <div class="page-header">
+        <img src="/static/dhr-logo.png" alt="DHR Logo" width="240px">
+        <h2>Abandoned Call Log for %s</h2>
+        <p style="margin: 0; color: #64748b; font-size: 0.8rem;">As of %s on %s</p>
+    </div>
 
-        <div>The phone numbers are clickable, you just need to make sure to select "Open with Cisco Jabber" and confirm that you want to dial the phone number.</div>
-        <div>When you return a call, check the box next to the call you returned, then click "Submit" <b>ONLY ONCE</b>.</div>
-        <div>It may take a second or two for the page to reload and for your submissions to be reflected, so please be patient.</div>       
-        <div>When the last call is cleared, you will be taken back to the Queue Selection page.</div>
-        
-        <br>
-        <div>If you don't see the "Submit" button, try scrolling down.</div>
-        <br>
-        <div class = "table-container">
-        <form id="dynamicForm" method="post" action="/clearcalls">
-        <table style="text-align: center; align-items: center;">
-                <tr>
-                    <th class = "table-header">Queue Name(s)</th>
-                    <th class = "table-header">Date and Time of Call</th>
-                    <th class = "table-header">Phone Number</th>
-                    <th class = "table-header">Returned?</th>
-                </tr>
-    """ % (queue, queue, datetime.now().strftime("%I:%M %p"), datetime.today().strftime("%m/%d/%Y"))
+    <div class="instructions">
+        Numbers are clickable (Open with Jabber). Check the box when a call is returned and click <strong>Submit</strong> once. 
+        When the last call is cleared, you'll return to the Queue Selection.
+    </div>
+
+    <div class="table-container">
+        <!-- Main Log Card -->
+        <div class="card main-log-card">
+            <form id="dynamicForm" method="post" action="/clearcalls">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Queue Name(s)</th>
+                            <th>Date/Time</th>
+                            <th>Phone Number</th>
+                            <th>Dialed Number</th>
+                            <th>Returned?</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    """ % (queue,  datetime.now().strftime("%I:%M %p"), datetime.today().strftime("%m/%d/%Y"))
 
     con = psycopg2.connect(CONNECT_STR)
     cur = con.cursor()
 
-    QUERY = '''SELECT * FROM missedcalls WHERE (queue = %s 
+    QUERY = '''SELECT queue, time, phone, dialed FROM missedcalls WHERE queue = %s 
     AND returned = False 
-    AND (date(time) >= date_trunc('week', CURRENT_DATE)
-        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'))    
+    AND date(time) = CURRENT_DATE    
     ORDER BY phone;'''
     DATA = (queue, )
 
@@ -276,23 +453,35 @@ async def clinic_list(request: Request, queue: str):
                             <td>{call[0]}</td>
                             <td>{call[1]}</td>
                             <td><a href="tel:{call[2]}">{call[2]}</a></td>
+                            <td>{call[3]}</td>
                             <td> <input type="checkbox" data-id="{call[1]}" name="selectedRows"  data-name="{call[2]}">
                 <label for="returned"></label><br></td>
                         </tr>
                 """
     
-        html_content += f'''</table>
-        <div><input type="submit" id="submitbtn" value="Submit"></div>
-        </form>
-        <div class = "overall-container"><a class = "button" href="/">Go back to queue selection</a></div>
-         <div class = "overall-container">
-            <table                          >
-                <caption style = "font-size: 24px;"><b>{queue} Performance for the Week</b></caption>
-                <tr>
-                    <th>Abandoned Calls</th>
-                    <th>Returned Calls</th>
-                    <th>Rate</th>
-                </tr>'''
+        html_content += f'''
+        </tbody>
+        </table>
+            <div style="text-align: right;">
+                    <input type="submit" id="submitbtn" value="Submit Changes">
+                </div>
+            </form>
+        </div>
+
+        <div class="card stats-card">
+            
+            
+            <table>
+                <caption style="font-weight: bold; margin-bottom: 10px; color: var(--brand-primary);">{queue} Weekly Performance</caption>
+                <thead>
+                    <tr>
+                        <th>Abandoned</th>
+                        <th>Returned</th>
+                        <th>Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                '''
     
         QUERY = """SELECT
                 COUNT(*) as missed_calls,
@@ -321,9 +510,16 @@ async def clinic_list(request: Request, queue: str):
                     </tr>                        
                     """
         html_content += """ 
+        </tbody>
         </table>
                     <br><br>
-                    <div style="background-color: lightgray;" id="myGauge"></div> </div>
+                    <div style="background-color: lightgray;" id="myGauge"></div>
+                    <div class="card-footer">
+        <a class="button-footer" href="/">← Back to Selection</a>
+    </div> 
+                      
+                    </div>
+                    
         <script>                
             var currentValue = %s;
 
@@ -335,6 +531,8 @@ async def clinic_list(request: Request, queue: str):
                 type: "indicator",
                 mode: "gauge+number",
                 gauge: {
+                bgcolor: "white",
+                borderwidth: 0,
                     axis: {
                         range: [0, 100], // Set the range from 0 to 100
                         tickvals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
@@ -372,11 +570,11 @@ async def clinic_list(request: Request, queue: str):
 
             // Chart layout configuration
             var layout = {
-                width:  500,
-                height: 500,
+                autosize: true,
                 yaxis: { scaleanchor: "x" },
-                margin: { t: 30, b: 30, l: 30, r: 30 },
-                paper_bgcolor: "transparent",
+                margin: { t: 50, b: 20, l: 30, r: 30 },
+                paper_bgcolor: "white",
+                plot_bgcolor: "white",
                 annotations: [{
                     x: arrowEndX, 
                     y: arrowEndY, 
@@ -397,6 +595,9 @@ async def clinic_list(request: Request, queue: str):
 
             // Render the gauge chart
             Plotly.newPlot('myGauge', data, layout);
+            window.addEventListener('resize', function() {
+    Plotly.Plots.resize('myGauge');
+    });
             </script>
 
             <script>
@@ -445,108 +646,220 @@ async def clinic_list(request: Request, queue: str):
 @app.get("/dashboard")
 async def get_dashboard(request: Request) -> HTMLResponse:
     html_content = """
-    <html>
-        <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
-        <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Oxygen+Mono&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
-            <meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->
-            
-            <style>
+    <!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="300">
+    <title>Abandoned Call Recovery Dashboard</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link href="https://fonts.googleapis.com" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
+    <style>
+        :root {
+            --brand-primary: #00a9a7;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #334155;
+            --border: #e2e8f0;
+        }
 
-             .nabla-1 {
-  font-family: "Roboto", sans-serif;
-  font-optical-sizing: auto;
-  font-weight: <weight>;
-  font-style: normal;
-  font-variation-settings:
-    "wdth" 100;
+        body {
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Roboto', sans-serif;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 30px;"""
+    
+    html_content += "width: 100% ;"
+
+    html_content += """
+        }
+
+        h2 {
+            color: var(--brand-primary);
+            font-size: 1.8rem;
+            margin: 10px 0;
+        }
+
+        .table-container {
+            display: flex;
+            justify-content: center;
+            gap: 25px;"""
+    
+    html_content += "width: 100% ;"
+
+    html_content += """
+            max-width: 1400px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        /* Card Styling */
+        .card {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 12px;
+            border-top: 4px solid var(--brand-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .main-stats-card { flex: 2; min-width: 600px; }
+        .overall-perf-card { flex: 1; min-width: 400px; text-align: center; }
+
+        /* Table Styling */
+        table {"""
+    
+    html_content += "width: 100% ;"
+
+    html_content += """
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+
+        caption {
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: var(--brand-primary);
+            font-size: 1.2rem;
+        }
+
+        th {
+            background-color: #f8fafc;
+            color: var(--brand-primary);
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            position: sticky;
+            z-index: 10;
+            padding: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 1.5rem;
+            text-align: center;
+        }
+
+        /* Footer styling for the Back button */
+        .card-footer {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border); """
+    
+    html_content += "width: 100%;"
+
+    html_content += """
+            display: flex;
+            justify-content: center;
+        }
+
+        .button-footer {
+            display: inline-block;
+            padding: 10px 24px;
+            background-color: var(--brand-primary);
+            color: white !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s ease;"""
+    
+    html_content += "width: 80%;}"
+
+    html_content += """
+
+        .button-footer:hover {
+            background-color: #008f8d;
+            transform: translateY(-1px);
+        }"""
+
+    html_content += "#myGauge { width: 100%; }"
+
+    html_content += """
+    .main-stats-card {
+    flex: 2;
+    min-width: 600px;
+  //max-height: 80vh; /* Optional: adds a scrollbar to the card itself */
+    overflow-y: auto; 
+      position: relative;
 }
 
-            h2 {
-            font-size: 40px;
-            }
-            body {
-		margin: 0;
-        padding: 0;
-		place-items: center;
-		background-color: lightgray;
-	}
-	div {
-		text-align: center;
-        line-height: 1;
-        margin: 0;
-        padding: 0;
-	}
+.main-stats-card thead th {
+    position: sticky;
+    top: 0; /* Sticks to the very top of the viewport */
+    z-index: 20;
+    background-color: #f8fafc; /* Must have a background to hide scrolling text */
+    padding: 15px 10px;
+    border-bottom: 2px solid var(--border);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Adds depth when scrolling */
+}
+.main-stats-card caption {
+    position: sticky;
+    top: 0;
+    z-index: 21;
+    background-color: var(--card-bg);
+    padding: 15px 0;
+    margin: 0;
+}
 
-	p, button {
-		text-align: center;
-        margin: 0;
-        padding: 0;
-        line-height: 1;
-	}
-
-    th, tr {
-    padding-right: 15;
-    text-align: center;
-    vertical-align: middle;
-    border: solid;
-    font-size: 24px;
+.main-stats-card thead th {
+    top: 50px; 
+}
+.overall-perf-card {
+    flex: 1;
+    min-width: 400px;
+    position: sticky;
+    top: 20px; /* Distance from the top of the viewport when scrolling */
+    align-self: flex-start; /* Required for sticky to work inside flexbox */
+}
+.table-container {
+    display: flex;
     justify-content: center;
-    }
+    gap: 25px;
+    width: 100%;
+    max-width: 1400px;
+    align-items: flex-start; """
 
-    td {
-    background-color: white;
-    border: 2px solid;
-    white-space: pre-line;
-    text-align : center;}
+    html_content += "width: 100%;"
 
-    .page-header {
-    /* Actual height of table header */
-    height: 150px; 
-    }
+    html_content += """
+    max-width: 1400px;
+    align-items: flex-start; /* Crucial: prevents the right card from stretching */
+}
 
-    .table-header {
-    position: sticky;
-    top: 0px;
-    background-color: lightgray; /* Add a background color so content scrolls behind it */
-    z-index: 10;
-    }
-
-    .overall-container {
-    position: sticky;
-    top: 25px;
-    background-color: lightgray; /* Add a background color so content scrolls behind it */
-    z-index: 10;
-    }
-
-    .table-container {
-    display: flex; 
-    justify-content: center; 
-    gap: 40px; 
-    margin-top: 20px; 
-    align-items: flex-start;
-    }
-            </style>
-
-            <title>Abandoned Call Recovery Dashboard</title>
-        </head>
-        <link rel ="icon" type = "image/x-icon" href="/static/favicon.ico">
-        <body class = "nabla-1">
-    <div class = "page-header">
-        <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-        <div><h2>Week to Date Call Recovery Statistics (as of %s)</h2></div> 
+        </style>
+</head>
+<body>
+    <div class="page-header">
+        <img src="/static/dhr-logo.png" alt="DHR Logo" width="320px">
+        <h2>Week to Date Call Recovery Statistics</h2>
+        <p style="color: #64748b;">As of %s</p>
     </div>
-        <div class="table-container">
-<table>
-<caption style = "font-size: 24px;"><b>Queue Performance</b></caption>
-                <tr>
-                    <th class = "table-header">Queue</th>
-                    <th class = "table-header">Abandoned Calls</th>
-                    <th class = "table-header">Returned Calls</th>
-                    <th class = "table-header">Return Rate</th>
-                </tr>
+
+    <div class="table-container">
+        <!-- Main Queue Stats -->
+        <div class="card main-stats-card">
+            <table>
+                <caption>Queue Performance</caption>
+                <thead>
+                    <tr>
+                        <th>Queue</th>
+                        <th>Abandoned</th>
+                        <th>Returned</th>
+                        <th>Return Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
     """ % (datetime.now().strftime("%I:%M %p"),) 
 
     con = psycopg2.connect(CONNECT_STR)
@@ -579,15 +892,20 @@ async def get_dashboard(request: Request) -> HTMLResponse:
         """
 
     html_content += """
-            </table> 
-            <div class = "overall-container">
-            <table                          >
-                <caption style = "font-size: 24px;"><b>Week to Date Overall Call Center Performance</b></caption>
-                <tr>
-                    <th>Abandoned Calls</th>
-                    <th>Returned Calls</th>
-                    <th>Rate</th>
-                </tr>"""
+    </tbody>
+        </table>
+    </div>
+           <div class="card overall-perf-card">
+            <table>
+                <caption>Overall Center Performance</caption>
+                <thead>
+                    <tr>
+                        <th>Abandoned</th>
+                        <th>Returned</th>
+                        <th>Rate</th>
+                    </tr>
+                </thead>
+                <tbody>"""
     
     QUERY = """SELECT
             COUNT(*) as missed_calls,
@@ -614,89 +932,65 @@ async def get_dashboard(request: Request) -> HTMLResponse:
             """    
     
     html_content += """
-                    </table>
-                    <br><br>
-                    <div style="background-color: lightgray;" id="myGauge"></div> </div>
+                </tbody>
+            </table>
+                    <div id="myGauge"></div>
+
+            <div class="card-footer">
+                <a class="button-footer" href="/">← Back to Selection</a>
+            </div>
+        </div>
+    </div>
 
     <script>
         var currentValue = %s;
-
-         var data = [{
+        var data = [{
             domain: { x: [0, 1], y: [0, 1] },
             value: currentValue,
-            // Update the title format with the actual value if needed
-            title: { text: "Call Recovery Rate"}, 
+            title: { text: "Call Recovery Rate", font: { color: '#00a9a7', family: 'Roboto', size: 18 } }, 
             type: "indicator",
             mode: "gauge+number",
             gauge: {
-                axis: {
-                    range: [0, 100], // Set the range from 0 to 100
-                    tickvals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-                },
-                bar: {color: "black", thickness: 0.1},
+                axis: { range: [0, 100], tickvals: [0, 20, 40, 60, 80, 100] },
+                bar: { color: "#334155", thickness: 0.2 },
+                bgcolor: "white",
                 steps: [
-                    { range: [0, 70],   color: "red"},
-                    { range: [70, 90],  color: "orange" },
-		            { range: [90, 100], color: "green" }	
+                    { range: [0, 70], color: "#ef4444" },
+                    { range: [70, 90], color: "#f59e0b" },
+                    { range: [90, 100], color: "#22c55e" }
                 ],
-                threshold: {
-                    line: { color: "black", width: 4 },
-                    thickness: 0.75,
-                    value: 90 // Optional: a target threshold
-                }
+                threshold: { line: { color: "black", width: 4 }, value: 90 }
             }
         }];
 
-        function valueToRadians(value) {
-            // Reverses the direction (180 deg at 0 value, 0 deg at 100 value)
-            return (Math.PI - ((value / 100) * Math.PI) );
-        }
-
-        var angle = valueToRadians(currentValue);
-
-        // Define the length of the arrow (normalized coordinates)
-        var needleLength = 0.45; // Slightly shorter
-        
-        // Define the origin point Y for the base of the arrow
+        // Needle Logic
+        var angle = (Math.PI - ((currentValue / 100) * Math.PI));
+        var needleLength = 0.45;
         var originY = 0.25; 
-
-        // Calculate the end points of the arrow based on the angle
         var arrowEndX = 0.5 + (needleLength * Math.cos(angle));
         var arrowEndY = originY + (needleLength * Math.sin(angle));
 
-        // Chart layout configuration
         var layout = {
-            width:  500,
-            height: 500,
-            yaxis: { scaleanchor: "x" },
-            margin: { t: 30, b: 30, l: 30, r: 30 },
+            autosize: true,
+          //  height: 300,
+            margin: { t: 60, b: 20, l: 30, r: 30 },
             paper_bgcolor: "transparent",
             annotations: [{
-                x: arrowEndX, 
-                y: arrowEndY, 
-                xref: 'paper',
-                yref: 'paper',
-                ax: 0.5, 
-                ay: originY, 
-                axref: 'paper',
-                ayref: 'paper',
-                showarrow: true,
-                arrowhead: 3, 
-                arrowsize: 1,
-                arrowwidth: 3,
-                arrowcolor: 'black',
-                standoff: 0 
+                x: arrowEndX, y: arrowEndY, xref: 'paper', yref: 'paper',
+                ax: 0.5, ay: originY, axref: 'paper', ayref: 'paper',
+                showarrow: true, arrowhead: 3, arrowsize: 1, arrowwidth: 3, arrowcolor: 'black'
             }]
         };
 
-
-        // Render the gauge chart
         Plotly.newPlot('myGauge', data, layout);
+
+        window.addEventListener('resize', function() {
+            Plotly.Plots.resize('myGauge');
+        });
     </script>
-                        </body>
-                        <!-- Clay was here! :) -->
-                    </html>
-                    """ % (return_rate, )
+</body> <!-- Clay was here! :) -->
+</html>
+""" % (return_rate, )
     cur.close()
     return HTMLResponse(content=html_content)
 
@@ -968,15 +1262,16 @@ async def process_file(file: UploadFile):
                 continue
             else:
                 if row['Contact Disposition'] in {'1', '1.0'}:            
-                    QUERY = "INSERT into missedcalls (queue, time, phone) VALUES (%s, %s, %s) ON CONFLICT (queue, time, phone) DO NOTHING;"
+                    QUERY = "INSERT into missedcalls (queue, time, phone, dialed) VALUES (%s, %s, %s, %s) ON CONFLICT (queue, time, phone) DO NOTHING;"
                     try:
-                        DATA = (row['Queue Name'], row['Call Time'], int(row['Phone Number']))                      
+                        DATA = (row['Queue Name'], row['Call Time'], int(row['Phone Number']), int(row['Number Dialed']))                      
                         cur.execute(QUERY, DATA)                        
                         rows_added += 1
                     except Exception as e:
+                        print(e)
                         print(row)
+                        print(DATA)
                         print("Phone number was probably not a phone number.\n")
-                        print("Phone number: ", row['Phone Number'],"\n", e)
         
     cur.close()
     con.commit()
