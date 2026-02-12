@@ -1,4 +1,4 @@
-Extremely basic and probably poorly done way I've schemed up to help agents in our call center keep track of calls they need to return.
+Call Recovery Platform for our Call Center
 
 On the agents' side:
 
@@ -14,3 +14,15 @@ On my/management's side:
   Very recently I automated this upload process using a sister script (also provided, "file_scanner.py") but it utilizes the same endpoint.
   The script automatically parses these and adds new calls to the database. Whether or not they get added is determined by Cisco's "Contact Disposition" field, where a 1 indicates the caller disconnected before talking to an agent and 2 means the call was handled by an agent.
   These additions can immediately be accessed by the agents due to how the endpoints work and how they query the database in order to assemble the HTML. 
+
+Landing page:
+
+<img width="832" height="716" alt="image" src="https://github.com/user-attachments/assets/24341f39-e3de-4708-a0eb-8c0c34599518" />
+
+Sample clinic view, demonstrating return rate gauge:
+
+<img width="1503" height="896" alt="image" src="https://github.com/user-attachments/assets/8557dbb2-51ba-4dd9-9559-802bf83ea147" />
+
+Weekly Performance Dashboard:
+
+<img width="1459" height="792" alt="image" src="https://github.com/user-attachments/assets/9542116e-0107-429f-920c-a9b150caaec6" />
