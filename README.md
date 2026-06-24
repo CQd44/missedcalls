@@ -51,27 +51,45 @@ Weekly Performance Dashboard:
 3. **Queue Distribution:** The platform serves the updated callback queue to agents based on real-time organizational needs.
 4. **Resolution:** Outbound logs track the life cycle of the callback until the patient has been successfully reached.
 
+## 🛠️ Built With
+
+*   **FastAPI** - Asynchronous, high-performance web framework for the API layer.
+*   **PostgreSQL** - Relational database infrastructure utilized for clinic multi-tenancy mappings.
+*   **Pydantic** - Data validation and settings management using python type hinting.
+*   **OpenPyXL & Aiofiles** - High-speed, non-blocking Excel/CSV data pipeline processing.
+
 ## 🚀 Getting Started
 
 ### Prerequisites
-* Ensure you have your standard runtime environment installed (e.g., Node.js / Python / Docker depending on your project core).
+Make sure you have Python 3.8+ installed along with a running instance of a PostgreSQL database.
 
 ### Installation
+
 1. Clone the repository:
    ```bash
    git clone https://github.com
-   ```
-2. Navigate into the project directory:
-   ```bash
    cd missedcalls
    ```
-3. Install the required dependencies:
+
+2. Create and activate a virtual environment:
    ```bash
-   # Replace with your project's specific install command (e.g., npm install, pip install -r requirements.txt)
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
    ```
 
-### Configuration
-Set up your environment variables or local configuration files to declare your clinic endpoints and database credentials before initiating the project.
+3. Install the required dependencies:
+   ```bash
+   pip install fastapi psycopg2-binary pydantic toml openpyxl aiofiles icecream uvicorn
+   ```
 
-## ⚖️ License
-This project is open-source. Please check the repository settings for licensing details.
+### Running the Application
+
+1. Ensure your local configuration file (`.toml` or environment variables) is set up with your PostgreSQL credentials.
+2. Spin up the local development server using Uvicorn:
+   ```bash
+   uvicorn main:app --reload
+   ```
+   *(Note: Replace `main:app` if your entry point script has a different filename.)*
