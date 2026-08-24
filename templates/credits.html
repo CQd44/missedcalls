@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credits — Missed Calls</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        (function() {
+            var t = localStorage.getItem('dhr-theme');
+            if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <style>
+        :root {
+            --brand-primary: #00A9A7;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #334155;
+            --border: #e2e8f0;
+            --text-muted: #64748b;
+        }
+
+        [data-theme="dark"] {
+            --brand-primary: #00A9A7;
+            --bg: #16162b;
+            --card-bg: #23233d;
+            --text-main: #e6e8f0;
+            --border: #34345a;
+            --text-muted: #9aa3b8;
+        }
+
+        body {
+            background: var(--bg);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--text-main);
+            font-family: 'Roboto', sans-serif;
+            padding: 40px 20px;
+        }
+
+        .credits-logo {
+            margin-bottom: 20px;
+        }
+
+        .credits-logo img {
+            max-width: 180px;
+            height: auto;
+        }
+
+        .credits-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .credits-header h1 {
+            font-size: 2.4rem;
+            font-weight: 700;
+            color: var(--brand-primary);
+            margin-bottom: 6px;
+        }
+
+        .credits-header p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .credits-list {
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 30px;
+        }
+
+        .credit-item {
+            background: var(--card-bg);
+            border-radius: 12px;
+            border-top: 4px solid var(--brand-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(16px);
+            animation: fadeUp 0.5s ease forwards;
+        }
+
+        .credit-item:nth-child(1) { animation-delay: 0.2s; }
+        .credit-item:nth-child(2) { animation-delay: 0.4s; }
+        .credit-item:nth-child(3) { animation-delay: 0.6s; }
+        .credit-item:nth-child(4) { animation-delay: 0.8s; }
+        .credit-item:nth-child(5) { animation-delay: 1.0s; }
+        .credit-item:nth-child(6) { animation-delay: 1.2s; }
+
+        .credit-item .role {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .credit-item .name {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        @keyframes fadeUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .game-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            border-top: 4px solid var(--brand-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            width: 100%;
+            max-width: 700px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .game-card h2 {
+            color: var(--brand-primary);
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin: 0 0 16px;
+        }
+
+        .game-hud {
+            display: flex;
+            justify-content: space-between;
+            max-width: 640px;
+            margin: 0 auto 10px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .game-hud span {
+            font-weight: 700;
+            color: var(--brand-primary);
+        }
+
+        #breakout-canvas {
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            cursor: none;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .back-link {
+            display: inline-block;
+            padding: 10px 28px;
+            background: var(--brand-primary);
+            color: #fff;
+            text-decoration: none;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .back-link:hover {
+            background: #008f8d;
+            transform: translateY(-1px);
+        }
+
+        .leaderboard-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            border-top: 4px solid var(--brand-primary);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            width: 100%;
+            max-width: 700px;
+            margin-bottom: 30px;
+        }
+
+        .leaderboard-card h2 {
+            color: var(--brand-primary);
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin: 0 0 16px;
+            text-align: center;
+        }
+
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .leaderboard-table th {
+            background: var(--brand-primary);
+            color: #fff;
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .leaderboard-table th:first-child {
+            border-radius: 6px 0 0 6px;
+            width: 40px;
+            text-align: center;
+        }
+
+        .leaderboard-table th:last-child {
+            border-radius: 0 6px 6px 0;
+            text-align: right;
+        }
+
+        .leaderboard-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .leaderboard-table td:first-child {
+            text-align: center;
+            font-weight: 700;
+            color: var(--brand-primary);
+        }
+
+        .leaderboard-table td:last-child {
+            text-align: right;
+            font-weight: 600;
+        }
+
+        .leaderboard-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .leaderboard-empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .score-prompt {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(0, 169, 167, 0.08);
+            border: 1px solid var(--brand-primary);
+            border-radius: 8px;
+            display: none;
+        }
+
+        .score-prompt label {
+            font-weight: 600;
+            color: var(--text-main);
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .score-prompt input {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            width: 200px;
+            margin-right: 8px;
+        }
+
+        .score-prompt button {
+            padding: 8px 16px;
+            background: var(--brand-primary);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .score-prompt button:hover {
+            background: #008f8d;
+        }
+
+        .score-prompt .saved {
+            color: var(--brand-primary);
+            font-weight: 600;
+        }
+    </style>
+</head>
+    <body>
+        <div class="theme-toggle" id="theme-toggle" role="switch" aria-checked="false" tabindex="0" title="Toggle dark mode">
+            <span class="toggle-icon sun">&#9728;&#65039;</span>
+            <span class="toggle-switch"><span class="toggle-thumb"></span></span>
+            <span class="toggle-icon moon">&#127769;</span>
+        </div>
+
+        <div class="credits-logo">
+        <img src="/static/dhr-logo.png" alt="DHR Logo">
+    </div>
+
+    <div class="credits-header">
+        <h1>Credits</h1>
+        <p>Service Recovery Platform</p>
+    </div>
+
+    <div class="credits-list">
+        <div class="credit-item">
+            <div class="role">Architecture & Development</div>
+            <div class="name">Clay Young, using Qwen-3.8:27b and VS Code</div>
+        </div>
+        <div class="credit-item">
+            <div class="role">Database Design</div>
+            <div class="name">PostgreSQL</div>
+        </div>
+        <div class="credit-item">
+            <div class="role">Web Framework</div>
+            <div class="name">FastAPI & Uvicorn</div>
+        </div>
+        <div class="credit-item">
+            <div class="role">Frontend</div>
+            <div class="name">Jinja2 & Vanilla JS</div>
+        </div>
+        <div class="credit-item">
+            <div class="role">Excel Processing</div>
+            <div class="name">OpenPyXL</div>
+        </div>
+        <div class="credit-item">
+            <div class="role">This Easter Egg</div>
+            <div class="name">You, for finding it</div>
+        </div>
+    </div>
+
+    <div class="game-card">
+        <h2>Play a round before you go</h2>
+        <div class="game-hud">
+            <div>Score: <span id="score">0</span></div>
+            <div>Lives: <span id="lives">3</span></div>
+            <div>Level: <span id="level">1</span></div>
+        </div>
+        <canvas id="breakout-canvas" width="640" height="400"></canvas>
+    </div>
+
+    <div class="leaderboard-card">
+        <h2>Top Scores</h2>
+        <div id="leaderboard-container">
+            <div class="leaderboard-empty">Loading leaderboard...</div>
+        </div>
+    </div>
+
+    <a class="back-link" href="/">&larr; Back to Service Recovery</a>
+
+    <script>
+    (function () {
+        const canvas = document.getElementById('breakout-canvas');
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width;
+        const H = canvas.height;
+
+        let paddleW = 100, paddleH = 12;
+        let paddleX = (W - paddleW) / 2;
+        let ballX = W / 2, ballY = H / 2;
+        let ballDX = 4, ballDY = -4;
+        let score = 0, lives = 3, level = 1;
+        let bricks = [];
+        const brickRows = 5, brickCols = 10;
+        const brickW = 56, brickH = 20, brickPad = 6;
+        const brickOffsetX = 40, brickOffsetY = 50;
+        let running = false;
+        let started = false;
+        let animId = null;
+
+        function initBricks() {
+            bricks = [];
+            for (let r = 0; r < brickRows; r++) {
+                for (let c = 0; c < brickCols; c++) {
+                    bricks.push({
+                        x: brickOffsetX + c * (brickW + brickPad),
+                        y: brickOffsetY + r * (brickH + brickPad),
+                        alive: true,
+                        color: `hsl(${170 + r * 10}, 60%, ${40 + r * 5}%)`
+                    });
+                }
+            }
+        }
+        initBricks();
+
+        function resetBall() {
+            ballX = W / 2;
+            ballY = H / 2;
+            ballDX = 4 * (Math.random() > 0.5 ? 1 : -1);
+            ballDY = -4;
+        }
+
+        canvas.addEventListener('mousemove', function (e) {
+            const rect = canvas.getBoundingClientRect();
+            paddleX = (e.clientX - rect.left) - paddleW / 2;
+            paddleX = Math.max(0, Math.min(W - paddleW, paddleX));
+        });
+
+        canvas.addEventListener('click', function () {
+            if (!running) {
+                score = 0; lives = 3; level = 1;
+                paddleW = 100;
+                initBricks();
+                resetBall();
+                running = true;
+                started = true;
+                document.getElementById('score').textContent = '0';
+                document.getElementById('lives').textContent = '3';
+                document.getElementById('level').textContent = '1';
+                if (animId) cancelAnimationFrame(animId);
+                animId = requestAnimationFrame(update);
+            }
+        });
+
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+
+            // Bricks
+            for (const b of bricks) {
+                if (!b.alive) continue;
+                ctx.fillStyle = b.color;
+                ctx.beginPath();
+                ctx.roundRect(b.x, b.y, brickW, brickH, 4);
+                ctx.fill();
+            }
+
+            // Paddle
+            ctx.fillStyle = '#00A9A7';
+            ctx.shadowColor = '#00A9A7';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.roundRect(paddleX, H - 30, paddleW, paddleH, 6);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Ball
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            ctx.fillStyle = isDark ? '#e6e8f0' : '#334155';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, 7, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Game over / start text
+            if (!running) {
+                ctx.fillStyle = isDark ? '#e6e8f0' : '#334155';
+                ctx.font = 'bold 28px Roboto, sans-serif';
+                ctx.textAlign = 'center';
+                if (started) {
+                    ctx.fillText('Game Over', W / 2, H / 2 - 20);
+                } else {
+                    ctx.fillText('Breakout', W / 2, H / 2 - 20);
+                }
+                ctx.font = '16px Roboto, sans-serif';
+                ctx.fillStyle = isDark ? '#9aa3b8' : '#64748b';
+                ctx.fillText('Click to ' + (started ? 'play again' : 'start'), W / 2, H / 2 + 15);
+            }
+        }
+
+        function update() {
+            if (!running) { draw(); return; }
+
+            ballX += ballDX;
+            ballY += ballDY;
+
+            // Walls
+            if (ballX <= 7 || ballX >= W - 7) ballDX = -ballDX;
+            if (ballY <= 7) ballDY = -ballDY;
+
+            // Paddle collision
+            if (ballY >= H - 37 && ballY <= H - 23 && ballX >= paddleX && ballX <= paddleX + paddleW) {
+                ballDY = -Math.abs(ballDY);
+                let hitPos = (ballX - paddleX) / paddleW - 0.5;
+                ballDX = hitPos * 8;
+            }
+
+        // Fell below
+            if (ballY > H + 20) {
+                lives--;
+                document.getElementById('lives').textContent = lives;
+                if (lives <= 0) {
+                    running = false;
+                    showScorePrompt();
+                } else {
+                    resetBall();
+                }
+            }
+
+            // Brick collisions
+            for (const b of bricks) {
+                if (!b.alive) continue;
+                if (ballX > b.x && ballX < b.x + brickW && ballY > b.y && ballY < b.y + brickH) {
+                    b.alive = false;
+                    ballDY = -ballDY;
+                    score += 10 * level;
+                    document.getElementById('score').textContent = score;
+                    break;
+                }
+            }
+
+            // Level complete
+            if (bricks.every(b => !b.alive)) {
+                level++;
+                document.getElementById('level').textContent = level;
+                paddleW = Math.max(60, paddleW - 10);
+                initBricks();
+                resetBall();
+            }
+
+            draw();
+            animId = requestAnimationFrame(update);
+        }
+
+        animId = requestAnimationFrame(update);
+
+        // --- Leaderboard ---
+        function loadLeaderboard() {
+            fetch('/leaderboard')
+                .then(r => r.json())
+                .then(entries => {
+                    const container = document.getElementById('leaderboard-container');
+                    if (!entries.length) {
+                        container.innerHTML = '<div class="leaderboard-empty">No scores yet — be the first!</div>';
+                        return;
+                    }
+                    let html = '<table class="leaderboard-table"><thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead><tbody>';
+                    entries.forEach((e, i) => {
+                        html += `<tr><td>${i + 1}</td><td>${e.name}</td><td>${e.score}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                })
+                .catch(() => {
+                    document.getElementById('leaderboard-container').innerHTML = '<div class="leaderboard-empty">Could not load leaderboard.</div>';
+                });
+        }
+        loadLeaderboard();
+
+        function showScorePrompt() {
+            if (score < 500) return;
+            // Remove any previous prompt
+            const existing = document.getElementById('score-prompt');
+            if (existing) existing.remove();
+            const prompt = document.createElement('div');
+            prompt.className = 'score-prompt';
+            prompt.id = 'score-prompt';
+            prompt.innerHTML = `
+                <label>Score: <strong>${score}</strong> — add yourself to the leaderboard!</label>
+                <input type="text" id="lb-name" placeholder="Your name" maxlength="50">
+                <button id="lb-submit">Save</button>
+            `;
+            document.querySelector('.game-card').appendChild(prompt);
+            prompt.style.display = 'block';
+
+            document.getElementById('lb-submit').addEventListener('click', function () {
+                const name = document.getElementById('lb-name').value.trim();
+                if (!name) return;
+                const body = new URLSearchParams();
+                body.append('name', name);
+                body.append('score', score);
+                fetch('/leaderboard', { method: 'POST', body: body })
+                    .then(r => r.json())
+                    .then(() => {
+                        prompt.innerHTML = '<span class="saved">Score saved! 🎉</span>';
+                        loadLeaderboard();
+                    });
+            });
+        }
+    })();
+    </script>
+    <script src="/static/theme.js"></script>
+</body>
+</html>

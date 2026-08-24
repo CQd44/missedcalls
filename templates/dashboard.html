@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}Overall Performance Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2 style="padding-bottom: 2%;">Overall Performance Dashboard</h2>
+</div>
+
+<!-- Period Toggle -->
+<div class="period-toggle" id="dash-period-toggle">
+    <button class="period-btn" data-period="day">Today</button>
+    <button class="period-btn active" data-period="week">This Week</button>
+    <button class="period-btn" data-period="month">This Month</button>
+</div>
+
+<div style="display:flex; justify-content:center; gap:12px; margin-bottom:15px; flex-wrap:wrap;">
+    <button id="btn-filter-queues" class="btn btn-outline btn-sm">&#9881; Filter Queues</button>
+</div>
+
+<!-- Queue Filter Modal -->
+<div id="queue-filter-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>Filter Queues</h3>
+            <button id="modal-close" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-controls">
+                <button id="btn-select-all" class="btn btn-outline btn-sm">Select All</button>
+                <button id="btn-deselect-all" class="btn btn-outline btn-sm">Deselect All</button>
+            </div>
+            <div id="queue-checkboxes" class="queue-checkbox-list">
+                {% for row in dashboard_data %}
+                <label class="queue-check-item">
+                    <input type="checkbox" value="{{ row[0] }}" checked>
+                    <span>{{ row[0] }}</span>
+                    <span class="queue-check-count">{{ row[1] }} calls</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-apply-filter" class="btn btn-primary btn-sm">Apply Filter</button>
+        </div>
+    </div>
+</div>
+
+<div class="table-container">
+    <div class="card main-log-card">
+        <h3 style="text-align: center;">Service Recovery Breakdown By Queue</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Queue</th>
+                    <th id="th-total">Abandoned</th>
+                    <th>Returned</th>
+                    <th>Return Rate</th>
+                </tr>
+            </thead>
+            <tbody id="dash-table-body">
+                {% for row in dashboard_data %}
+                <tr>
+                    <td><a href="/calls?queue={{ row[0] }}" class="phone-link">{{ row[0] }}</a></td>
+                    <td class="col-total">{{ row[1] }}</td>
+                    <td class="col-returned">{{ row[4] }}</td>
+                    <td class="col-rate" style="color: {{ '#22c55e' if row[5] >= 50 else '#ef4444' }};">{{ row[5] }}%</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" class="no-data">No data available. Upload a call report to get started.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card stats-card">
+        <h3 style="text-align: center;">Overall Center Performance</h3>
+        <p class="stats-text" id="dash-stats-text">{{ overall_returned }} returned / {{ overall_missed }} abandoned</p>
+
+        <!-- SVG Ring Chart -->
+        <div class="ring-chart-wrapper">
+            <svg class="ring-chart" viewBox="0 0 200 200" id="ringSvg">
+                <defs>
+                    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#06b6d4" />
+                        <stop offset="50%" stop-color="#00A9A7" />
+                        <stop offset="100%" stop-color="#22c55e" />
+                    </linearGradient>
+                    <linearGradient id="ringGradRed" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#f43f5e" />
+                        <stop offset="100%" stop-color="#ef4444" />
+                    </linearGradient>
+                    <linearGradient id="ringGradAmber" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#f59e0b" />
+                        <stop offset="100%" stop-color="#f97316" />
+                    </linearGradient>
+                </defs>
+                <!-- Background track -->
+                <circle class="ring-track" cx="100" cy="100" r="80" />
+                <!-- Colored arc — rotate only this element so text stays upright -->
+                <circle class="ring-arc" cx="100" cy="100" r="80" id="ringArc"
+                        transform="rotate(-90 100 100)" />
+                <!-- Center text (not rotated) -->
+                <text class="ring-value" x="100" y="96" text-anchor="middle" id="ringValue">{{ overall_rate }}</text>
+                <text class="ring-label" x="100" y="120" text-anchor="middle">Recovery %</text>
+            </svg>
+        </div>
+
+        <div class="card-footer">
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    // Ring chart geometry
+    const RADIUS = 80;
+    const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+    const ringArc = document.getElementById('ringArc');
+    const ringValue = document.getElementById('ringValue');
+    const statsText = document.getElementById('dash-stats-text');
+    const periodLabel = document.getElementById('dash-period-label');
+    const tableBody = document.getElementById('dash-table-body');
+    const thTotal = document.getElementById('th-total');
+    const toggleBtns = document.querySelectorAll('#dash-period-toggle .period-btn');
+
+    // --- Persistent state ---
+    // Queues currently selected by the filter (defaults to all). Persists
+    // across period changes so the filter is not reset when switching timeframes.
+    let selectedQueues = new Set();
+    // The active period and its fetched data.
+    let currentPeriod = 'week';
+    let currentData = null;
+
+    // Set initial ring
+    function setRing(rate) {
+        const offset = CIRCUMFERENCE * (1 - rate / 100);
+        ringArc.style.strokeDasharray = CIRCUMFERENCE;
+        ringArc.style.strokeDashoffset = offset;
+        ringValue.textContent = rate;
+
+        // Gradient: red < 50, amber 50-79, green >= 80
+        let grad = 'url(#ringGradRed)';
+        let solid = '#ef4444';
+        if (rate >= 80) { grad = 'url(#ringGrad)'; solid = '#00A9A7'; }
+        else if (rate >= 50) { grad = 'url(#ringGradAmber)'; solid = '#f59e0b'; }
+        ringArc.style.stroke = grad;
+        ringValue.style.fill = solid;
+    }
+
+    // --- Queue Filter Modal ---
+    const modal = document.getElementById('queue-filter-modal');
+    const btnFilter = document.getElementById('btn-filter-queues');
+    const btnClose = document.getElementById('modal-close');
+    const btnSelectAll = document.getElementById('btn-select-all');
+    const btnDeselectAll = document.getElementById('btn-deselect-all');
+    const btnApply = document.getElementById('btn-apply-filter');
+    const checkboxes = modal.querySelectorAll('input[type="checkbox"]');
+
+    // Initialize the selected set to every queue (checkboxes start checked).
+    checkboxes.forEach(cb => { if (cb.checked) selectedQueues.add(cb.value); });
+
+    // Single source of truth for the displayed stats, ring, and table.
+    // Always derives from the current period's data, filtered by selectedQueues,
+    // so the ring/table/stats stay consistent and the filter persists.
+    function render() {
+        if (!currentData || !selectedQueues) return;
+
+        // Filter the period's queues by the selected set.
+        const queues = currentData.queues.filter(q => selectedQueues.has(q.name));
+
+        // Recompute overall stats from the filtered, period-correct data.
+        let total = 0, returned = 0;
+        queues.forEach(q => { total += q.total; returned += q.returned; });
+        const rate = total > 0 ? Math.round((returned / total) * 100) : 0;
+
+        // Stats text
+        statsText.textContent = `${returned} returned / ${total} abandoned`;
+
+        // Ring
+        setRing(rate);
+
+        // Table header
+        thTotal.textContent = currentPeriod === 'day' ? 'Missed Today' : currentPeriod === 'week' ? 'Missed This Week' : 'Missed This Month';
+
+        // Table body
+        if (queues.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="4" class="no-data">No calls in this period.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        queues.forEach(q => {
+            const rateColor = q.rate >= 50 ? '#22c55e' : '#ef4444';
+            html += `<tr>
+                <td><a href="/calls?queue=${encodeURIComponent(q.name)}" class="phone-link">${q.name}</a></td>
+                <td class="col-total">${q.total}</td>
+                <td class="col-returned">${q.returned}</td>
+                <td class="col-rate" style="color: ${rateColor};">${q.rate}%</td>
+            </tr>`;
+        });
+        tableBody.innerHTML = html;
+    }
+
+    // Refresh the active period, then re-render with the current filter applied.
+    function fetchStats(period) {
+        currentPeriod = period;
+        fetch(`/dashboard/stats?period=${period}`)
+            .then(r => {
+                if (!r.ok) throw new Error('Request failed');
+                return r.json();
+            })
+            .then(data => {
+                currentData = data;
+
+                // Update label (if element exists)
+                if (periodLabel) {
+                    const labels = { day: 'Today', week: 'This Week', month: 'This Month' };
+                    periodLabel.textContent = `All queues, ${labels[period]}`;
+                }
+
+                render();
+            })
+            .catch(err => console.error('Dashboard stats error:', err));
+    }
+
+    // Apply the filter: update the persistent selected set, then re-render.
+    function applyFilter() {
+        selectedQueues = new Set();
+        checkboxes.forEach(cb => { if (cb.checked) selectedQueues.add(cb.value); });
+        render();
+    }
+
+    // Immediately fetch the default period ("week") so the page
+    // shows correct data on load instead of stale server-rendered values.
+    fetchStats('week');
+
+    // Toggle handler
+    toggleBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            toggleBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const period = this.dataset.period;
+            fetchStats(period);
+        });
+    });
+
+    if (btnFilter) btnFilter.addEventListener('click', () => { modal.style.display = 'flex'; });
+    if (btnClose) btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
+    if (btnSelectAll) btnSelectAll.addEventListener('click', () => { checkboxes.forEach(cb => cb.checked = true); });
+    if (btnDeselectAll) btnDeselectAll.addEventListener('click', () => { checkboxes.forEach(cb => cb.checked = false); });
+    if (btnApply) btnApply.addEventListener('click', () => { applyFilter(); modal.style.display = 'none'; });
+    modal.addEventListener('click', function(e) { if (e.target === modal) modal.style.display = 'none'; });
+})();
+</script>
+{% endblock %}

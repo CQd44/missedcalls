@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+
+{% block title %}Abandoned Call Report{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="main-page">
+    <h1 class="page-title">Service Recovery Report</h1>
+
+    <div class="report-header">
+        <div class="report-date-range">
+            <span class="date-label">Date Range:</span>
+            <strong>{{ date_from }} &rarr; {{ date_to }}</strong>
+        </div>
+        <div class="report-actions">
+            <button id="btn-filter-queues" class="btn btn-outline btn-sm">
+                <span>&#9881;</span> Filter Queues
+            </button>
+            <a id="link-download-excel" href="/report/download_excel?date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-primary btn-sm" target="_blank">
+                <span>&#128196;</span> Download Excel
+            </a>
+            <a id="link-download-csv" href="/report/download_csv?date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-outline btn-sm" target="_blank">
+                <span>&#128190;</span> Download CSV
+            </a>
+        </div>
+    </div>
+
+    <!-- Queue Filter Modal -->
+    <div id="queue-filter-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Filter Queues</h3>
+                <button id="modal-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-controls">
+                    <button id="btn-select-all" class="btn btn-outline btn-sm">Select All</button>
+                    <button id="btn-deselect-all" class="btn btn-outline btn-sm">Deselect All</button>
+                </div>
+                <div id="queue-checkboxes" class="queue-checkbox-list">
+                    {% for q in data.queues %}
+                    <label class="queue-check-item">
+                        <input type="checkbox" value="{{ q.name }}" checked>
+                        <span>{{ q.name }}</span>
+                        <span class="queue-check-count">{{ q.total }} calls</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-apply-filter" class="btn btn-primary btn-sm">Apply Filter</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Section -->
+    <div class="summary-section">
+        <div class="summary-grid">
+            <!-- Overall (all queues) -->
+            <div class="summary-panel">
+                <h2 class="section-title">Overall Summary</h2>
+                <div class="stat-cards">
+                    <div class="stat-card">
+                        <div class="stat-number">{{ data.overall_total }}</div>
+                        <div class="stat-label">Total Abandoned Calls</div>
+                    </div>
+                    <div class="stat-card stat-green">
+                        <div class="stat-number">{{ data.overall_returned }}</div>
+                        <div class="stat-label">Returned</div>
+                    </div>
+                    <div class="stat-card stat-red">
+                        <div class="stat-number">{{ data.overall_not_returned }}</div>
+                        <div class="stat-label">Not Returned</div>
+                    </div>
+                    <div class="stat-card stat-teal">
+                        <div class="stat-number">{{ data.overall_rate }}%</div>
+                        <div class="stat-label">Return Rate</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="overall-donut" data-returned="{{ data.overall_returned }}" data-not-returned="{{ data.overall_not_returned }}"></canvas>
+                </div>
+            </div>
+
+            <!-- Selected Queues (dynamic) -->
+            <div class="summary-panel">
+                <h2 class="section-title">Selected Queues <span class="section-count" id="selected-queue-count">({{ data.queues|length }} selected)</span></h2>
+                <div class="stat-cards">
+                    <div class="stat-card">
+                        <div class="stat-number" id="sel-total">{{ data.overall_total }}</div>
+                        <div class="stat-label">Total Abandoned Calls</div>
+                    </div>
+                    <div class="stat-card stat-green">
+                        <div class="stat-number" id="sel-returned">{{ data.overall_returned }}</div>
+                        <div class="stat-label">Returned</div>
+                    </div>
+                    <div class="stat-card stat-red">
+                        <div class="stat-number" id="sel-not-returned">{{ data.overall_not_returned }}</div>
+                        <div class="stat-label">Not Returned</div>
+                    </div>
+                    <div class="stat-card stat-teal">
+                        <div class="stat-number" id="sel-rate">{{ data.overall_rate }}%</div>
+                        <div class="stat-label">Return Rate</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="selected-donut" data-returned="{{ data.overall_returned }}" data-not-returned="{{ data.overall_not_returned }}"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Per-Queue Accordions -->
+    <div class="accordion-section">
+        <h2 class="section-title">
+            By Queue
+            <span class="section-count">({{ data.queues|length }} queues)</span>
+        </h2>
+        <div class="accordion-controls">
+            <button class="btn-sm btn-outline" id="expand-all">Expand All</button>
+            <button class="btn-sm btn-outline" id="collapse-all">Collapse All</button>
+        </div>
+
+        {% for q in data.queues %}
+        <details class="accordion-item" data-queue="{{ q.name }}" {% if loop.first %}open{% endif %}>
+            <summary class="accordion-header">
+                <span class="accordion-title">{{ q.name }}</span>
+                <span class="accordion-stats">
+                    <span class="stat-pill">{{ q.total }} calls</span>
+                    <span class="stat-pill pill-green">{{ q.returned }} returned</span>
+                    <span class="stat-pill pill-red">{{ q.not_returned }} not</span>
+                    <span class="rate-badge rate-{{ 'green' if q.rate >= 70 else 'yellow' if q.rate >= 40 else 'red' }}">{{ q.rate }}%</span>
+                </span>
+            </summary>
+            <div class="accordion-body">
+                <div class="queue-charts">
+                    <div class="chart-container chart-half">
+                        <p class="chart-subtitle">Return Rate</p>
+                        <canvas class="queue-donut" data-returned="{{ q.returned }}" data-not-returned="{{ q.not_returned }}" data-rate="{{ q.rate }}"></canvas>
+                    </div>
+                    <div class="chart-container chart-half">
+                        <p class="chart-subtitle">Abandoned Calls per Day</p>
+                        <canvas class="queue-bar" data-daily='{{ q.daily|tojson }}'></canvas>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Call Time</th>
+                                <th>Phone Number</th>
+                                <th>Returned</th>
+                                <th>Returned On</th>
+                                <th>IP Address</th>
+                                <th>PC Name</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for call in q.calls %}
+                            <tr class="{{ 'row-returned' if call.returned else 'row-not-returned' }}">
+                                <td>{{ call.time.strftime('%m/%d/%y %I:%M %p') }}</td>
+                                <td>{{ call.phone }}</td>
+                                <td>
+                                    <span class="status-badge {{ 'badge-green' if call.returned else 'badge-red' }}">
+                                        {{ 'Yes' if call.returned else 'No' }}
+                                    </span>
+                                </td>
+                                <td>{{ call.returned_on.strftime('%m/%d/%y %I:%M %p') if call.returned_on else '—' }}</td>
+                                <td>{{ call.ip_address or '—' }}</td>
+                                <td>{{ call.hostname or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tealColor = '#00A9A7';
+    const greenColor = '#28a745';
+    const redColor = '#dc3545';
+
+    function themeColors() {
+        return (window.DHRTheme && DHRTheme.colors()) || { card: '#fff', text: '#333', muted: '#6c757d' };
+    }
+
+    // Overall donut
+    const overallCanvas = document.getElementById('overall-donut');
+    let overallChart = null;
+    if (overallCanvas) {
+        const tc = themeColors();
+        overallChart = new Chart(overallCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Returned', 'Not Returned'],
+                datasets: [{
+                    data: [
+                        parseInt(overallCanvas.dataset.returned),
+                        parseInt(overallCanvas.dataset.notReturned)
+                    ],
+                    backgroundColor: [greenColor, redColor],
+                    borderWidth: 2,
+                    borderColor: tc.card
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    }
+
+    // Selected queues donut
+    const selectedCanvas = document.getElementById('selected-donut');
+    let selectedChart = null;
+    if (selectedCanvas) {
+        const tc = themeColors();
+        selectedChart = new Chart(selectedCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Returned', 'Not Returned'],
+                datasets: [{
+                    data: [
+                        parseInt(selectedCanvas.dataset.returned),
+                        parseInt(selectedCanvas.dataset.notReturned)
+                    ],
+                    backgroundColor: [greenColor, redColor],
+                    borderWidth: 2,
+                    borderColor: tc.card
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    }
+
+    // Store per-queue data for client-side recalculation
+    const queueData = {};
+    {% for q in data.queues %}
+    queueData["{{ q.name|replace('"','\\"') }}"] = { total: {{ q.total }}, returned: {{ q.returned }}, not_returned: {{ q.not_returned }} };
+    {% endfor %}
+
+    function updateSelectedStats(selectedQueues) {
+        let total = 0, returned = 0, notReturned = 0;
+        selectedQueues.forEach(name => {
+            const qd = queueData[name];
+            if (qd) {
+                total += qd.total;
+                returned += qd.returned;
+                notReturned += qd.not_returned;
+            }
+        });
+        const rate = total > 0 ? Math.round((returned / total) * 100) : 0;
+
+        const elTotal = document.getElementById('sel-total');
+        const elReturned = document.getElementById('sel-returned');
+        const elNotReturned = document.getElementById('sel-not-returned');
+        const elRate = document.getElementById('sel-rate');
+        const elCount = document.getElementById('selected-queue-count');
+
+        if (elTotal) elTotal.textContent = total;
+        if (elReturned) elReturned.textContent = returned;
+        if (elNotReturned) elNotReturned.textContent = notReturned;
+        if (elRate) elRate.textContent = rate + '%';
+        if (elCount) elCount.textContent = '(' + selectedQueues.length + ' selected)';
+
+        if (selectedChart) {
+            selectedChart.data.datasets[0].data = [returned, notReturned];
+            selectedChart.update();
+        }
+    }
+
+    // Chart.js plugin: draw center text on doughnut charts
+    const centerTextPlugin = {
+        id: 'centerText',
+        afterDraw(chart) {
+            const meta = chart.config.options.plugins.centerText;
+            if (!meta) return;
+            const tc = themeColors();
+            const { ctx, chartArea: { left, right, top, bottom } } = chart;
+            const x = (left + right) / 2;
+            const y = (top + bottom) / 2;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillStyle = meta.color || tc.text;
+            ctx.fillText(meta.text, x, y - 6);
+            ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillStyle = tc.muted;
+            ctx.fillText(meta.subtext || '', x, y + 16);
+            ctx.restore();
+        }
+    };
+
+    // Per-queue donut charts
+    document.querySelectorAll('.queue-donut').forEach(function(canvas) {
+        const rate = canvas.dataset.rate || '0';
+        const tc = themeColors();
+        new Chart(canvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Returned', 'Not Returned'],
+                datasets: [{
+                    data: [
+                        parseInt(canvas.dataset.returned),
+                        parseInt(canvas.dataset.notReturned)
+                    ],
+                    backgroundColor: [greenColor, redColor],
+                    borderWidth: 2,
+                    borderColor: tc.card
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                cutout: '60%',
+                plugins: {
+                    legend: { position: 'bottom' },
+                    centerText: { text: rate + '%', subtext: 'returned', color: tc.text }
+                }
+            },
+            plugins: [centerTextPlugin]
+        });
+    });
+
+    // Per-queue bar charts
+    document.querySelectorAll('.queue-bar').forEach(function(canvas) {
+        const daily = JSON.parse(canvas.dataset.daily);
+        const labels = daily.map(d => d[0]);
+        const values = daily.map(d => d[1]);
+        const tc = themeColors();
+        new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Abandoned Calls',
+                    data: values,
+                    backgroundColor: tealColor,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1 },
+                        title: {
+                            display: true,
+                            text: 'Abandoned Calls',
+                            font: { size: 11, weight: '600' },
+                            color: tc.muted
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            font: { size: 11, weight: '600' },
+                            color: tc.muted
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    // Update all charts when theme changes
+    if (window.DHRTheme) {
+        DHRTheme.onThemeChange(function() {
+            const tc = themeColors();
+            // Update donut border colors and center text
+            document.querySelectorAll('canvas').forEach(function(canvas) {
+                const chart = Chart.getChart(canvas);
+                if (!chart) return;
+                if (chart.data.datasets && chart.data.datasets[0]) {
+                    chart.data.datasets[0].borderColor = tc.card;
+                }
+                if (chart.options.plugins && chart.options.plugins.centerText) {
+                    chart.options.plugins.centerText.color = tc.text;
+                }
+                if (chart.options.scales) {
+                    ['x', 'y'].forEach(function(axis) {
+                        if (chart.options.scales[axis] && chart.options.scales[axis].title) {
+                            chart.options.scales[axis].title.color = tc.muted;
+                        }
+                    });
+                }
+                chart.update('none');
+            });
+        });
+    }
+
+    // Accordion controls
+    const expandBtn = document.getElementById('expand-all');
+    const collapseBtn = document.getElementById('collapse-all');
+    if (expandBtn) {
+        expandBtn.addEventListener('click', function() {
+            document.querySelectorAll('.accordion-item').forEach(el => el.open = true);
+        });
+    }
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', function() {
+            document.querySelectorAll('.accordion-item').forEach(el => el.open = false);
+        });
+    }
+
+    // --- Queue Filter Modal ---
+    const modal = document.getElementById('queue-filter-modal');
+    const btnFilter = document.getElementById('btn-filter-queues');
+    const btnClose = document.getElementById('modal-close');
+    const btnSelectAll = document.getElementById('btn-select-all');
+    const btnDeselectAll = document.getElementById('btn-deselect-all');
+    const btnApply = document.getElementById('btn-apply-filter');
+    const checkboxes = modal.querySelectorAll('input[type="checkbox"]');
+    const linkExcel = document.getElementById('link-download-excel');
+    const linkCsv = document.getElementById('link-download-csv');
+
+    function getSelectedQueues() {
+        const selected = [];
+        checkboxes.forEach(cb => { if (cb.checked) selected.push(cb.value); });
+        return selected;
+    }
+
+    function updateDownloadLinks(queues) {
+        const baseExcel = '/report/download_excel?date_from={{ date_from }}&date_to={{ date_to }}';
+        const baseCsv = '/report/download_csv?date_from={{ date_from }}&date_to={{ date_to }}';
+        if (queues.length === checkboxes.length) {
+            // All selected — no filter param needed
+            linkExcel.href = baseExcel;
+            linkCsv.href = baseCsv;
+        } else {
+            const param = '&queues=' + encodeURIComponent(queues.join(','));
+            linkExcel.href = baseExcel + param;
+            linkCsv.href = baseCsv + param;
+        }
+    }
+
+    function applyFilter() {
+        const selected = getSelectedQueues();
+        const selectedSet = new Set(selected);
+        document.querySelectorAll('.accordion-item').forEach(item => {
+            const queue = item.dataset.queue;
+            if (selectedSet.has(queue)) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+        updateSelectedStats(selected);
+        updateDownloadLinks(selected);
+    }
+
+    if (btnFilter) {
+        btnFilter.addEventListener('click', function() {
+            modal.style.display = 'flex';
+        });
+    }
+    if (btnClose) {
+        btnClose.addEventListener('click', function() {
+            modal.style.display = 'none';
+        });
+    }
+    if (btnSelectAll) {
+        btnSelectAll.addEventListener('click', function() {
+            checkboxes.forEach(cb => cb.checked = true);
+        });
+    }
+    if (btnDeselectAll) {
+        btnDeselectAll.addEventListener('click', function() {
+            checkboxes.forEach(cb => cb.checked = false);
+        });
+    }
+    if (btnApply) {
+        btnApply.addEventListener('click', function() {
+            applyFilter();
+            modal.style.display = 'none';
+        });
+    }
+    // Close modal when clicking overlay background
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}

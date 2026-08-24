@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Error{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Something went wrong</h2>
+</div>
+
+<div class="error-card">
+    <p>{{ error_message or "An unexpected error occurred while processing the file." }}</p>
+    <div class="card-footer">
+        <a href="/" class="button-footer">&larr; Back to Queue Selection</a>
+    </div>
+</div>
+{% endblock %}

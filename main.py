@@ -1,1196 +1,398 @@
-#abandoned call uploader and verifier
-#agents use this to verify calls they've returned, i use it to upload files to populate those lists
-#port 13798
-
-import psycopg2
-from fastapi import FastAPI, Request, Form, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from typing import Generator, List, Tuple
-import toml
-import os
-import openpyxl
-import aiofiles
-import csv
-from datetime import datetime
-from pydantic import BaseModel
-import socket
-from icecream import ic
-from urology_aid import handle_xlsx
-import math
-
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static") #logo and favicon go here
-
-HEADERS = ['Queue Name', 'Call Time', 'Contact Disposition', 'Phone Number']
-CONFIG = toml.load("./config.toml") # load variables from toml file
-CONNECT_STR = f'dbname = {CONFIG['credentials']['dbname']} user = {CONFIG['credentials']['username']} password = {CONFIG['credentials']['password']} host = {CONFIG['credentials']['host']}'
-
-class InputSpreadsheet():
-    input_file: str = 'temp_files\\temp_file.csv'
-
-class SelectedRows(BaseModel):
-    selectedRows: List[Tuple[str, str]]
-
-@app.on_event("startup")
-async def startup_event():
-    try:
-        init_db()
-    except Exception as e:
-        print(e)
-
-@app.get("/")
-async def clinic_selection(request: Request) -> HTMLResponse:
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()
-    html_content = ''' <!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="300">
-    <title>Queue Selection</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <link href="https://fonts.googleapis.com" rel="stylesheet">
-    <style>
-        :root {
-            --brand-primary: #00a9a7;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #334155;
-            --border: #e2e8f0;
-        }
-
-        body {
-            margin: 0;
-            padding: 40px 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background-color: var(--bg);
-            color: var(--text-main);
-            font-family: 'Roboto', sans-serif;
-            line-height: 1.6;
-        }
-
-        .logo-container {
-            text-align: center;
-
-            width: 100%;
-            margin-bottom: 10px;
-        }
-
-        h1 {
-            color: var(--brand-primary);
-            font-size: 2rem;
-            margin-bottom: 20px;
-        }
-
-        /* Consistent Card Style */
-        .queue-card {
-            background: var(--card-bg);
-            padding: 2.5rem;
-            border-radius: 12px;
-            border-top: 4px solid var(--brand-primary);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 700px;
-            text-align: center;
-        }
-
-        .info-text {
-            font-size: 0.95rem;
-            color: #64748b;
-            text-align: left;
-            margin-bottom: 25px;
-            background-color: #f1f5f9;
-            padding: 20px;
-            border-radius: 8px;
-        }
-
-        .info-text p {
-            margin: 10px 0;
-        }
-
-        /* Form Elements */
-        label {
-            display: block;
-            font-weight: 700;
-            margin-bottom: 10px;
-            color: var(--brand-primary);
-        }
-
-        select.queue {
-            width: 100%;
-            max-width: 400px;
-            padding: 12px;
-            border: 1.5px solid var(--border);
-            border-radius: 8px;
-            font-size: 1rem;
-            margin-bottom: 20px;
-            background-color: white;
-            outline-color: var(--brand-primary);
-        }
-
-        input[type="submit"] {
-            display: inline-block;
-            padding: 12px 30px;
-            background-color: var(--brand-primary);
-            color: white;
-            border: 2px solid var(--brand-primary);
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-size: 1rem;
-        }
-
-        input[type="submit"]:hover {
-            background-color: white;
-            color: var(--brand-primary);
-        }
-
-        .card-footer {
-    margin-top: 15px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border); /* Subtle divider line */
-    width: 100%;
-    display: flex;
-    justify-content: center;
-}
-
-/* Updated button style for the footer */
-.button-footer {
-    display: inline-block;
-    padding: 10px 20px;
-    background-color: var(--brand-primary);
-    color: white !important;
-    text-decoration: none;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-    width: 80%; /* Makes the button nice and clickable */
-    text-align: center;
-}
-
-.button-footer:hover {
-    background-color: #008f8d; /* Slightly darker teal on hover */
-    transform: translateY(-1px);
-}
-    </style>
-</head>
-
-<body>
-    <div class="logo-container">
-        <img src="/static/dhr-logo.png" alt="DHR Logo" width="320px">
-    </div>
-
-    <h1>Call Recovery Queue Selection</h1>
-
-    <div class="queue-card">
-        <div class="info-text">
-            <p>Please select your queue from the dropdown list. This tool only shows missed calls from the <strong>current day</strong>.</p>
-            <p>If your queue isn't listed, it currently doesn't have any calls to return, but please check back later.</p>
-            <p><small>Note: Calls are refreshed hourly. This page auto-refreshes every 5 minutes.</small></p>
-        </div>
-
-        <form method="get" action="/getlist">
-            <label for="queue">Select Queue:</label>
-            <select name="queue" id="queue" class="queue">
-'''
-
-    QUERY = '''SELECT DISTINCT(queue) FROM missedcalls WHERE (returned = False AND date(time) = CURRENT_DATE);'''
-    cur.execute(QUERY)
-    results = cur.fetchall()
-    queues = [item[0] for item in results]
-    queues.sort()
-
-    for queue in queues:
-        html_content += f'<option value="{queue}">{queue}</option>'
-
-    html_content += '''</select>
-    <input type="submit" id="submitbtn" value="Submit">
-    </form>
-    <div class="card-footer">
-        <a class="button-footer" href="/dashboard">Overall Performance Dashboard →</a>
-    </div> 
-    </div>
-    </body>
-    </html>
-'''
-   
-    return HTMLResponse(content = html_content)
-
-@app.get("/getlist")
-async def clinic_list(request: Request, queue: str):
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()
-    QUERY = '''SELECT * FROM missedcalls WHERE (queue = %s AND returned = False AND date(time) = CURRENT_DATE);'''
-    DATA = (queue, )
-    cur.execute(QUERY, DATA)
-    results = cur.fetchall()
-    if len(results) == 0:
-        cur.close()
-        con.close()
-        return RedirectResponse(url="/")
-
-    html_content = """
-    <!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="600">
-    <title>%s Missed Calls</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <link href="https://fonts.googleapis.com" rel="stylesheet">
-    <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
-    <style>
-        :root {
-            --brand-primary: #00a9a7;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #334155;
-            --border: #e2e8f0;
-        }
-
-        body {
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background-color: var(--bg);
-            color: var(--text-main);
-            font-family: 'Roboto', sans-serif;
-        }
-
-        /* Sticky Header Section */
-        .page-header {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            background-color: var(--bg);""" % (queue, )
-    html_content += "width: 100%; text-align: center; padding-bottom: 10px; border-bottom: 1px solid var(--border);        }"
-    html_content += """
-        h2 {
-            color: var(--brand-primary);
-            margin: 5px 0;
-            font-size: 1.8rem;
-        }
-
-        .instructions {
-            max-width: 900px;
-            font-size: 0.9rem;
-            color: #64748b;
-            margin: 15px 0;
-            text-align: center;
-        }
-
-        /* Layout for the two main cards */
-        .table-container {
-            display: flex;
-            justify-content: center;
-            gap: 25px; """
-    html_content += "width: 100%;max-width: 1400px;align-items: flex-start;flex-wrap: wrap;}"
-    html_content += """
-
-        /* Modern Card Styling */
-        .card {
-            background: var(--card-bg);
-            padding: 20px;
-            border-radius: 12px;
-            border-top: 4px solid var(--brand-primary);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-        }
-
-        .main-log-card { flex: 2; min-width: 600px; }
-        .stats-card { flex: 1; min-width: 350px; position: sticky; top: 180px; }
-
-        /* Table Styling */
-        """
-    html_content += "table {            width: 100%;            border-collapse: collapse;            margin-bottom: 15px;        }"
-    html_content += """
-        th {
-            background-color: #f8fafc;
-            color: var(--brand-primary);
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            padding: 12px;
-            border-bottom: 2px solid var(--border);
-            position: sticky;
-            top: 0;
-            z-index: 5;
-        }
-
-        td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            text-align: center;
-            font-size: 0.95rem;
-        }
-
-        /* Submit Button */
-        input[type="submit"] {
-            background-color: var(--brand-primary);
-            color: white;
-            border: 2px solid var(--brand-primary);
-            padding: 10px 30px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        input[type="submit"]:hover {
-            background-color: white;
-            color: var(--brand-primary);
-        }
-
-        /* Go Back Button */
-        a.button {
-            display: inline-block;
-            text-decoration: none;
-            color: var(--brand-primary);
-            font-weight: 600;
-            margin-bottom: 15px;
-            padding: 5px 10px;
-            border: 1px solid var(--brand-primary);
-            border-radius: 6px;
-            transition: 0.2s;
-        }
-
-        a.button:hover {
-            background-color: var(--brand-primary);
-            color: white;
-        }
-
-        .card-footer {
-    margin-top: 15px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border); /* Subtle divider line */
-    width: 100% ;
-    display: flex;
-    justify-content: center;
-}
-
-/* Updated button style for the footer */
-.button-footer {
-    display: inline-block;
-    padding: 10px 20px;
-    background-color: var(--brand-primary);
-    color: white !important;
-    text-decoration: none;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-    width: 80%; /* Makes the button nice and clickable */
-    text-align: center;
-}
-
-.button-footer:hover {
-    background-color: #008f8d; /* Slightly darker teal on hover */
-    transform: translateY(-1px);
-}
-
-
 """
-    html_content+= "#myGauge { width: 100%; height: auto;}"
-    html_content += """
-    </style>
-</head>
+Missed Call Uploader and Verifier
+Agents use this to verify calls they've returned.
+Admins use it to upload files to populate those lists.
+Port 13798
+"""
 
-<body>
-    <div class="page-header">
-        <img src="/static/dhr-logo.png" alt="DHR Logo" width="240px">
-        <h2>Abandoned Call Log for %s</h2>
-        <p style="margin: 0; color: #64748b; font-size: 0.8rem;">As of %s on %s</p>
-    </div>
+import csv
+import json
+import math
+import os
+import socket
+import toml
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Generator, List, Optional, Tuple
 
-    <div class="instructions">
-        Numbers are clickable (Open with Jabber). Check the box when a call is returned and click <strong>Submit</strong> once. 
-        When the last call is cleared, you'll return to the Queue Selection.
-    </div>
+import aiofiles
+import openpyxl
+import psycopg2
+import psycopg2.extras
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
-    <div class="table-container">
-        <!-- Main Log Card -->
-        <div class="card main-log-card">
-            <form id="dynamicForm" method="post" action="/clearcalls">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Queue Name(s)</th>
-                            <th>Date/Time</th>
-                            <th>Phone Number</th>
-                            <th>Dialed Number</th>
-                            <th>Returned?</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-    """ % (queue,  datetime.now().strftime("%I:%M %p"), datetime.today().strftime("%m/%d/%Y"))
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+CONFIG = toml.load("./config.toml")
+CONNECT_STR = (
+    f"dbname={CONFIG['credentials']['dbname']} "
+    f"user={CONFIG['credentials']['username']} "
+    f"password={CONFIG['credentials']['password']} "
+    f"host={CONFIG['credentials']['host']}"
+)
 
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()
+HEADERS = ["Queue Name", "Call Time", "Contact Disposition", "Phone Number"]
+TEMP_DIR = "temp_files"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
-    QUERY = '''SELECT queue, time, phone, dialed FROM missedcalls WHERE queue = %s 
-    AND returned = False 
-    AND date(time) = CURRENT_DATE    
-    ORDER BY phone;'''
-    DATA = (queue, )
+# ---------------------------------------------------------------------------
+# Database helpers
+# ---------------------------------------------------------------------------
+def get_connection():
+    """Return a new psycopg2 connection."""
+    return psycopg2.connect(CONNECT_STR)
 
-    cur.execute(QUERY, DATA)
-    results = cur.fetchall() # list of tuples
-
-    calls = [item for item in results]
+def get_hostname(ip_address: str) -> str:
+    """Resolve an IP address to a hostname via reverse DNS lookup."""
     try:
-        for call in calls:
-            if call[-1] == True:
-                continue
-            else:
-                html_content += f"""
-                        <tr>                        
-                            <td>{call[0]}</td>
-                            <td>{call[1]}</td>
-                            <td><a href="tel:{call[2]}">{call[2]}</a></td>
-                            <td>{call[3]}</td>
-                            <td> <input type="checkbox" data-id="{call[1]}" name="selectedRows"  data-name="{call[2]}">
-                <label for="returned"></label><br></td>
-                        </tr>
-                """
-    
-        html_content += f'''
-        </tbody>
-        </table>
-            <div style="text-align: right;">
-                    <input type="submit" id="submitbtn" value="Submit Changes">
-                </div>
-            </form>
-        </div>
+        return socket.gethostbyaddr(ip_address)[0]
+    except socket.herror:
+        return "No hostname found"
 
-        <div class="card stats-card">
-            
-            
-            <table>
-                <caption style="font-weight: bold; margin-bottom: 10px; color: var(--brand-primary);">{queue} Weekly Performance</caption>
-                <thead>
-                    <tr>
-                        <th>Abandoned</th>
-                        <th>Returned</th>
-                        <th>Rate</th>
-                    </tr>
-                </thead>
-                <tbody>
-                '''
-    
-        QUERY = """SELECT
-                COUNT(*) as missed_calls,
-                COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
-                FROM
-                missedcalls
-                WHERE (queue = %s
-                AND
-                (date(time) >= date_trunc('week', CURRENT_DATE)
-        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'));
-                """
 
-        DATA = (queue, )
-        cur.execute(QUERY, DATA)
-        results = cur.fetchall()
-        
-        for result in results:
-            return_rate = "-"
-            if result[0] != 0:
-                return_rate = math.ceil(100 * (result[1] / result[0]))
-            html_content += f"""
-                    <tr>
-                        <td>{result[0]}</td>
-                        <td>{result[1]}</td>
-                        <td>{return_rate}%</td>
-                    </tr>                        
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        print("Started")
+    except Exception as e:
+        print(f"[startup] DB init error: {e}")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+@app.get("/")
+async def home(request: Request):
+    """Queue selection page – dropdown of queues with unreturned calls today."""
+    # Reset the easter-egg click counter when visiting the homepage
+    ip = request.client.host if request.client else "unknown"
+    _logo_clicks[ip] = 0
+    con = get_connection()
+    cur = con.cursor()
+    cur.execute(
+        "SELECT DISTINCT(queue) FROM missedcalls WHERE (returned = FALSE AND date(time) = CURRENT_DATE);"
+    )
+    results = cur.fetchall()
+    cur.close()
+    con.close()
+    queues = sorted([item[0] for item in results])
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "queues": queues,
+        },
+    )
+
+
+@app.get("/calls")
+async def calls(request: Request, queue: str = ""):
+    """Show unreturned calls for a specific queue (today only)."""
+    if not queue:
+        return RedirectResponse(url="/", status_code=302)
+
+    now = datetime.now()
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                SELECT queue, time, phone, dialed
+                FROM missedcalls
+                WHERE queue = %s
+                AND returned = FALSE
+                AND date(time) = CURRENT_DATE
+                ORDER BY phone;
+                """,
+                (queue,),
+            )
+            rows = cur.fetchall()
+
+    call_list = []
+    for row in rows:
+        call_list.append({
+            "queue": row[0],
+            "time": row[1],
+            "phone": row[2],
+            "dialed": row[3] or "",
+        })
+
+    total = len(call_list)
+
+    # Weekly performance for this queue (same week window as the original tool)
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS missed_calls,
+                    COUNT(*) FILTER (WHERE returned = TRUE) AS returned_calls
+                FROM missedcalls
+                WHERE queue = %s
+                AND date(time) >= date_trunc('week', CURRENT_DATE)
+                AND date(time) <  date_trunc('week', CURRENT_DATE) + INTERVAL '7 days';
+                """,
+                (queue,),
+            )
+            weekly = cur.fetchone()
+
+    weekly_missed = weekly[0] if weekly else 0
+    weekly_returned = weekly[1] if weekly else 0
+    weekly_rate = math.ceil(100 * (weekly_returned / weekly_missed)) if weekly_missed else 0
+
+    # Gauge needle: 0% => -90deg, 100% => +90deg
+    needle_angle = -90 + (weekly_rate * 1.8)
+
+    return templates.TemplateResponse(
+        request,
+        "calls.html",
+        {
+            "queue_name": queue,
+            "calls": call_list,
+            "total_calls": total,
+            "weekly_missed": weekly_missed,
+            "weekly_returned": weekly_returned,
+            "weekly_rate": weekly_rate,
+            "current_time": now.strftime("%I:%M %p"),
+            "current_date": now.strftime("%m/%d/%Y"),
+            "needle_angle": needle_angle,
+        },
+    )
+
+
+@app.get("/calls/stats")
+async def calls_stats(request: Request, queue: str = "", period: str = "week"):
+    """Return JSON stats (abandoned, returned, rate) for a queue over a date period."""
+    if not queue:
+        raise HTTPException(status_code=400, detail="Queue is required.")
+
+    period_clauses = {
+        "day": "date(time) = CURRENT_DATE",
+        "week": "date(time) >= date_trunc('week', CURRENT_DATE) AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'",
+        "month": "date(time) >= date_trunc('month', CURRENT_DATE) AND date(time) < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'",
+    }
+    clause = period_clauses.get(period)
+    if not clause:
+        raise HTTPException(status_code=400, detail="Invalid period. Use day, week, or month.")
+
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS missed_calls,
+                    COUNT(*) FILTER (WHERE returned = TRUE) AS returned_calls
+                FROM missedcalls
+                WHERE queue = %s
+                AND {clause};
+                """,
+                (queue,),
+            )
+            row = cur.fetchone()
+
+    abandoned = row[0] if row else 0
+    returned = row[1] if row else 0
+    rate = math.ceil(100 * (returned / abandoned)) if abandoned else 0
+
+    return JSONResponse({
+        "abandoned": abandoned,
+        "returned": returned,
+        "rate": rate,
+    })
+
+
+@app.post("/clearcalls")
+async def clear_calls(request: Request, calls_json: str = Form(""), queue: str = Form("")):
+    """Mark selected calls as returned by matching (queue, time, phone, dialed)."""
+    if not calls_json:
+        raise HTTPException(status_code=400, detail="No calls provided.")
+
+    try:
+        calls = json.loads(calls_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid calls data.")
+
+    if not isinstance(calls, list) or len(calls) == 0:
+        raise HTTPException(status_code=400, detail="No valid calls to mark.")
+
+    now = datetime.now()
+    client_ip = request.client.host # type: ignore
+    hostname = get_hostname(client_ip)
+
+    with get_connection() as con:
+        with con.cursor() as cur:
+            for call in calls:
+                call_time = call.get("time", "")
+                phone = call.get("phone", "")
+                dialed = call.get("dialed", "")
+
+                try:
+                    time_val = datetime.strptime(call_time, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+
+                cur.execute(
                     """
-        html_content += """ 
-        </tbody>
-        </table>
-                    <br><br>
-                    <div style="background-color: lightgray;" id="myGauge"></div>
-                    <div class="card-footer">
-        <a class="button-footer" href="/">← Back to Selection</a>
-    </div> 
-                      
-                    </div>
-                    
-        <script>                
-            var currentValue = %s;
+                    UPDATE missedcalls
+                    SET returned = TRUE,
+                        returned_on = %s,
+                        ip_address = %s,
+                        hostname = %s
+                    WHERE queue = %s
+                      AND time = %s
+                      AND phone = %s
+                      AND COALESCE(dialed::text, '') = %s
+                      AND returned = FALSE;
+                    """,
+                    (now, client_ip, hostname, queue, time_val, phone, dialed),
+                )
+        con.commit()
 
-            var data = [{
-                domain: { x: [0, 1], y: [0, 1] },
-                value: currentValue,
-                // Update the title format with the actual value if needed
-                title: { text: "Call Recovery Rate"}, 
-                type: "indicator",
-                mode: "gauge+number",
-                gauge: {
-                bgcolor: "white",
-                borderwidth: 0,
-                    axis: {
-                        range: [0, 100], // Set the range from 0 to 100
-                        tickvals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-                    },
-                    bar: {color: "black", thickness: 0.1},
-                    steps: [
-                        { range: [0, 70],   color: "red"},
-                        { range: [70, 90],  color: "orange" },
-                        { range: [90, 100], color: "green" }	
-                    ],
-                    threshold: {
-                        line: { color: "black", width: 4 },
-                        thickness: 0.75,
-                        value: 90 // Optional: a target threshold
-                    }
-                }
-            }];
+    # Check if any unreturned calls remain for THIS queue today
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM missedcalls
+                WHERE queue = %s AND returned = FALSE AND date(time) = CURRENT_DATE;
+                """,
+                (queue,),
+            )
+            remaining = cur.fetchone()[0] # type: ignore
 
-            function valueToRadians(value) {
-                // Reverses the direction (180 deg at 0 value, 0 deg at 100 value)
-                return (Math.PI - ((value / 100) * Math.PI) );
-            }
+    if remaining == 0:
+        return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url=f"/calls?queue={queue}", status_code=303)
 
-            var angle = valueToRadians(currentValue);
-
-            // length of the arrow (normalized coordinates)
-            var needleLength = 0.45; // Slightly shorter
-            
-            // origin point Y for the base of the arrow
-            var originY = 0.25; 
-
-            // Calculate the end points of the arrow based on the angle
-            var arrowEndX = 0.5 + (needleLength * Math.cos(angle));
-            var arrowEndY = originY + (needleLength * Math.sin(angle));
-
-            // Chart layout configuration
-            var layout = {
-                autosize: true,
-                yaxis: { scaleanchor: "x" },
-                margin: { t: 50, b: 20, l: 30, r: 30 },
-                paper_bgcolor: "white",
-                plot_bgcolor: "white",
-                annotations: [{
-                    x: arrowEndX, 
-                    y: arrowEndY, 
-                    xref: 'paper',
-                    yref: 'paper',
-                    ax: 0.5, 
-                    ay: originY, 
-                    axref: 'paper',
-                    ayref: 'paper',
-                    showarrow: true,
-                    arrowhead: 3, 
-                    arrowsize: 1,
-                    arrowwidth: 3,
-                    arrowcolor: 'black',
-                    standoff: 0 
-                }]
-            };
-
-            // Render the gauge chart
-            Plotly.newPlot('myGauge', data, layout);
-            window.addEventListener('resize', function() {
-    Plotly.Plots.resize('myGauge');
-    });
-            </script>
-
-            <script>
-                   document.getElementById("dynamicForm").addEventListener("submit", async (event) => {
-        event.preventDefault(); 
-
-            const checkboxes = document.querySelectorAll('input[name="selectedRows"]:checked');
-            const selectedData = Array.from(checkboxes).map(checkbox => [
-                checkbox.dataset.id,
-                checkbox.dataset.name
-            ]);
-
-            const form = document.getElementById("dynamicForm");
-            const endpoint = form.action;
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ selectedRows: selectedData })
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log("Server response:", result);
-                    window.location.href = window.location.href;
-                    // Optionally redirect or update UI based on response
-                } else {
-                    console.error("Error submitting data:", response.statusText);
-                    window.location.href = window.location.href;
-                }
-            } catch (error) {
-                console.error("Network error:", error);
-                window.location.href = window.location.href;
-            }
-        });
-            </script>
-            </body>
-        </html>""" % (return_rate, )        
-        return HTMLResponse(content=html_content)
-    except:
-        return HTMLResponse(content="No missed calls here!")    
 
 @app.get("/dashboard")
-async def get_dashboard(request: Request) -> HTMLResponse:
-    html_content = """
-    <!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="300">
-    <title>Abandoned Call Recovery Dashboard</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <link href="https://fonts.googleapis.com" rel="stylesheet">
-    <script src="https://cdn.plot.ly/plotly-3.3.0.min.js" charset="utf-8"></script>
-    <style>
-        :root {
-            --brand-primary: #00a9a7;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #334155;
-            --border: #e2e8f0;
-        }
+async def dashboard(request: Request):
+    """Dashboard with all-queue stats and a ring chart."""
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                SELECT queue,
+                       COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE time >= NOW() - INTERVAL '7 days') AS this_week,
+                       COUNT(*) FILTER (WHERE time >= NOW() - INTERVAL '30 days') AS last_30,
+                       COUNT(*) FILTER (WHERE returned = TRUE) AS returned
+                FROM missedcalls
+                GROUP BY queue
+                ORDER BY queue;
+                """
+            )
+            rows = cur.fetchall()
 
-        body {
-            margin: 0;
-            padding: 40px 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background-color: var(--bg);
-            color: var(--text-main);
-            font-family: 'Roboto', sans-serif;
-        }
+            cur.execute("SELECT COUNT(*), COUNT(*) FILTER (WHERE returned = TRUE) FROM missedcalls;")
+            overall = cur.fetchone()
 
-        .page-header {
-            text-align: center;
-            margin-bottom: 30px;"""
-    
-    html_content += "width: 100% ;"
+    overall_missed = overall[0] if overall else 0
+    overall_returned = overall[1] if overall else 0
+    overall_rate = round((overall_returned / overall_missed) * 100) if overall_missed else 0
 
-    html_content += """
-        }
+    dashboard_data = []
+    for r in rows:
+        rate = round((r[4] / r[1]) * 100) if r[1] else 0
+        dashboard_data.append([r[0], r[1], r[2], r[3], r[4], rate])
 
-        h2 {
-            color: var(--brand-primary);
-            font-size: 1.8rem;
-            margin: 10px 0;
-        }
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "dashboard_data": dashboard_data,
+            "overall_missed": overall_missed,
+            "overall_returned": overall_returned,
+            "overall_rate": overall_rate,
+        },
+    )
 
-        .table-container {
-            display: flex;
-            justify-content: center;
-            gap: 25px;"""
-    
-    html_content += "width: 100% ;"
+@app.get("/dashboard/stats")
+async def dashboard_stats(request: Request, period: str = "week"):
+    """Return JSON stats for all queues over a given period (day/week/month)."""
+    period_clauses = {
+        "day": "date(time) = CURRENT_DATE",
+        "week": "date(time) >= date_trunc('week', CURRENT_DATE) AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'",
+        "month": "date(time) >= date_trunc('month', CURRENT_DATE) AND date(time) < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'",
+    }
+    clause = period_clauses.get(period)
+    if not clause:
+        raise HTTPException(status_code=400, detail="Invalid period. Use day, week, or month.")
 
-    html_content += """
-            max-width: 1400px;
-            align-items: flex-start;
-            flex-wrap: wrap;
-        }
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT queue,
+                       COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE returned = TRUE) AS returned
+                FROM missedcalls
+                WHERE {clause}
+                GROUP BY queue
+                ORDER BY queue;
+                """,
+            )
+            rows = cur.fetchall()
 
-        /* Card Styling */
-        .card {
-            background: var(--card-bg);
-            padding: 25px;
-            border-radius: 12px;
-            border-top: 4px solid var(--brand-primary);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-        }
+            cur.execute(
+                f"""
+                SELECT COUNT(*), COUNT(*) FILTER (WHERE returned = TRUE)
+                FROM missedcalls
+                WHERE {clause};
+                """
+            )
+            overall = cur.fetchone()
 
-        .main-stats-card { flex: 2; min-width: 600px; }
-        .overall-perf-card { flex: 1; min-width: 400px; text-align: center; }
+    queues = []
+    for r in rows:
+        rate = round((r[2] / r[1]) * 100) if r[1] else 0
+        queues.append({"name": r[0], "total": r[1], "returned": r[2], "rate": rate})
 
-        /* Table Styling */
-        table {"""
-    
-    html_content += "width: 100% ;"
+    overall_total = overall[0] if overall else 0
+    overall_returned = overall[1] if overall else 0
+    overall_rate = round((overall_returned / overall_total) * 100) if overall_total else 0
 
-    html_content += """
-            border-collapse: collapse;
-            margin-bottom: 10px;
-        }
+    return JSONResponse({
+        "period": period,
+        "overall_total": overall_total,
+        "overall_returned": overall_returned,
+        "overall_rate": overall_rate,
+        "queues": queues,
+    })
 
-        caption {
-            font-weight: 700;
-            margin-bottom: 15px;
-            color: var(--brand-primary);
-            font-size: 1.2rem;
-        }
+@app.post("/upload")
+async def process_upload(request: Request, csv_file: UploadFile = File(...)):
+    """Process an uploaded CSV or XLSX file and insert rows into the DB."""
+    if not csv_file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
 
-        th {
-            background-color: #f8fafc;
-            color: var(--brand-primary);
-            font-size: 1.2rem;
-            text-transform: uppercase;
-            position: sticky;
-            z-index: 10;
-            padding: 12px;
-            border-bottom: 2px solid var(--border);
-        }
+    file = csv_file
+    input_file = ''
 
-        td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            font-size: 1.5rem;
-            text-align: center;
-        }
-
-        /* Footer styling for the Back button */
-        .card-footer {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid var(--border); """
-    
-    html_content += "width: 100%;"
-
-    html_content += """
-            display: flex;
-            justify-content: center;
-        }
-
-        .button-footer {
-            display: inline-block;
-            padding: 10px 24px;
-            background-color: var(--brand-primary);
-            color: white !important;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.2s ease;"""
-    
-    html_content += "width: 80%;}"
-
-    html_content += """
-
-        .button-footer:hover {
-            background-color: #008f8d;
-            transform: translateY(-1px);
-        }"""
-
-    html_content += "#myGauge { width: 100%; }"
-
-    html_content += """
-    .main-stats-card {
-    flex: 2;
-    min-width: 600px;
-  //max-height: 80vh; /* Optional: adds a scrollbar to the card itself */
-    overflow-y: auto; 
-      position: relative;
-}
-
-.main-stats-card thead th {
-    position: sticky;
-    top: 0; /* Sticks to the very top of the viewport */
-    z-index: 20;
-    background-color: #f8fafc; /* Must have a background to hide scrolling text */
-    padding: 15px 10px;
-    border-bottom: 2px solid var(--border);
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Adds depth when scrolling */
-}
-.main-stats-card caption {
-    position: sticky;
-    top: 0;
-    z-index: 21;
-    background-color: var(--card-bg);
-    padding: 15px 0;
-    margin: 0;
-}
-
-.main-stats-card thead th {
-    top: 50px; 
-}
-.overall-perf-card {
-    flex: 1;
-    min-width: 400px;
-    position: sticky;
-    top: 20px; /* Distance from the top of the viewport when scrolling */
-    align-self: flex-start; /* Required for sticky to work inside flexbox */
-}
-.table-container {
-    display: flex;
-    justify-content: center;
-    gap: 25px;
-    width: 100%;
-    max-width: 1400px;
-    align-items: flex-start; """
-
-    html_content += "width: 100%;"
-
-    html_content += """
-    max-width: 1400px;
-    align-items: flex-start; /* Crucial: prevents the right card from stretching */
-}
-
-        </style>
-</head>
-<body>
-    <div class="page-header">
-        <img src="/static/dhr-logo.png" alt="DHR Logo" width="320px">
-        <h2>Week to Date Call Recovery Statistics</h2>
-        <p style="color: #64748b;">As of %s</p>
-    </div>
-
-    <div class="table-container">
-        <!-- Main Queue Stats -->
-        <div class="card main-stats-card">
-            <table>
-                <caption>Queue Performance</caption>
-                <thead>
-                    <tr>
-                        <th>Queue</th>
-                        <th>Abandoned</th>
-                        <th>Returned</th>
-                        <th>Return Rate</th>
-                    </tr>
-                </thead>
-                <tbody>
-    """ % (datetime.now().strftime("%I:%M %p"),) 
-
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()
-
-    QUERY = """SELECT 
-            queue,
-            COUNT(*) AS missed_calls,
-            COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
-            FROM
-            missedcalls
-            WHERE (date(time) >= date_trunc('week', CURRENT_DATE)
-        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')
-            GROUP BY queue;
-            """
-    cur.execute(QUERY)
-    results = cur.fetchall()
-    for result in results:
-        if math.ceil(100 * (result[2] / result[1])) >= 90:
-            color = 'green'
-        else:
-            color = 'red'
-        html_content += f"""
-                <tr>
-                    <td>{result[0]}</td>
-                    <td>{result[1]}</td>
-                    <td>{result[2]}</td>
-                    <td style = "color: {color};">{math.ceil(100 * (result[2] / result[1]))}%</td
-                </tr>
-        """
-
-    html_content += """
-    </tbody>
-        </table>
-    </div>
-           <div class="card overall-perf-card">
-            <table>
-                <caption>Overall Center Performance</caption>
-                <thead>
-                    <tr>
-                        <th>Abandoned</th>
-                        <th>Returned</th>
-                        <th>Rate</th>
-                    </tr>
-                </thead>
-                <tbody>"""
-    
-    QUERY = """SELECT
-            COUNT(*) as missed_calls,
-            COUNT(CASE WHEN returned = True THEN 1 END) AS returned_calls
-            FROM
-            missedcalls
-            WHERE (date(time) >= date_trunc('week', CURRENT_DATE)
-        AND date(time) < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days');
-            """
-    
-    cur.execute(QUERY)
-    results = cur.fetchall()
-    
-    for result in results:
-        return_rate = "-"
-        if result[0] != 0:
-            return_rate = math.ceil(100 * (result[1] / result[0]))
-        html_content += f"""
-                <tr>
-                    <td>{result[0]}</td>
-                    <td>{result[1]}</td>
-                    <td>{return_rate}%</td>
-                </tr>                        
-            """    
-    
-    html_content += """
-                </tbody>
-            </table>
-                    <div id="myGauge"></div>
-
-            <div class="card-footer">
-                <a class="button-footer" href="/">← Back to Selection</a>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        var currentValue = %s;
-        var data = [{
-            domain: { x: [0, 1], y: [0, 1] },
-            value: currentValue,
-            title: { text: "Call Recovery Rate", font: { color: '#00a9a7', family: 'Roboto', size: 18 } }, 
-            type: "indicator",
-            mode: "gauge+number",
-            gauge: {
-                axis: { range: [0, 100], tickvals: [0, 20, 40, 60, 80, 100] },
-                bar: { color: "#334155", thickness: 0.2 },
-                bgcolor: "white",
-                steps: [
-                    { range: [0, 70], color: "#ef4444" },
-                    { range: [70, 90], color: "#f59e0b" },
-                    { range: [90, 100], color: "#22c55e" }
-                ],
-                threshold: { line: { color: "black", width: 4 }, value: 90 }
-            }
-        }];
-
-        // Needle Logic
-        var angle = (Math.PI - ((currentValue / 100) * Math.PI));
-        var needleLength = 0.45;
-        var originY = 0.25; 
-        var arrowEndX = 0.5 + (needleLength * Math.cos(angle));
-        var arrowEndY = originY + (needleLength * Math.sin(angle));
-
-        var layout = {
-            autosize: true,
-          //  height: 300,
-            margin: { t: 60, b: 20, l: 30, r: 30 },
-            paper_bgcolor: "transparent",
-            annotations: [{
-                x: arrowEndX, y: arrowEndY, xref: 'paper', yref: 'paper',
-                ax: 0.5, ay: originY, axref: 'paper', ayref: 'paper',
-                showarrow: true, arrowhead: 3, arrowsize: 1, arrowwidth: 3, arrowcolor: 'black'
-            }]
-        };
-
-        Plotly.newPlot('myGauge', data, layout);
-
-        window.addEventListener('resize', function() {
-            Plotly.Plots.resize('myGauge');
-        });
-    </script>
-</body> <!-- Clay was here! :) -->
-</html>
-""" % (return_rate, )
-    cur.close()
-    return HTMLResponse(content=html_content)
-
-# where I upload the spreadsheet that has all the abandoned calls 
-@app.get("/upload")
-async def upload_calls(request: Request) -> HTMLResponse:
-    html_content = """
-<html>
-<head>
-<style>
-	body {
-		margin: 0;
-		display: grid;
-		min-height: 10vh;
-		place-items: center;
-		background-color: lightgray;
-	}
-	div {
-		text-align: center;
-	}
-
-	p, button {
-		text-align: center;
-	}
-
-	a.button {
-    padding: 1px 6px;
-    border: 1px outset buttonborder;
-    border-radius: 3px;
-    color: black;
-    background-color: gainsboro;
-    text-decoration: none;
-}
-
-.from {
-	display: inline-flex;
-}
-
-</style>
-
-        <title>Call Report Upload</title></head>
-<link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
-<body>    
-	<div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320" height = "88"></div>
-	<h1>Call Upload</h1>
-    <p>Upload abandoned call report.</p>
-	
-	<form method="post" enctype="multipart/form-data" action="/process">
-  <label for="file">File:</label>
-  <div><input id="file" name="file" type="file" accept=".xlsx, .csv"/><br><br></div>
-  <div><button type="submit" value="submit" class="file" disabled>Upload</button></div>
-</form>
-	</div>
-	<br><br><br>
-
-	<div class="reports">
-		<h3>Run Abandoned Call Report</h3>
-		<form method="post" action="/report">
-		<p>From:</p>
-		<div class="from">
-		<select name="month_from" id="month_from" required class="month_from">
-			<option value="1">January</option>
-			<option value="2">February</option>
-			<option value="3">March</option>
-			<option value="4">April</option>
-			<option value="5">May</option>
-			<option value="6">June</option>
-			<option value="7">July</option>
-			<option value="8">August</option>
-			<option value="9">September</option>
-			<option value="10">October</option>
-			<option value="11">November</option>
-			<option value="12">December</option>
-		</select>
-		<select name="day_from" id="day_from" required class="day_from">
-			<option value="1">1</option>
-			<option value="2">2</option>
-			<option value="3">3</option>
-			<option value="4">4</option>
-			<option value="5">5</option>
-			<option value="6">6</option>
-			<option value="7">7</option>
-			<option value="8">8</option>
-			<option value="9">9</option>
-			<option value="10">10</option>
-			<option value="11">11</option>
-			<option value="12">12</option>
-			<option value="13">13</option>
-			<option value="14">14</option>
-			<option value="15">15</option>
-			<option value="16">16</option>
-			<option value="17">17</option>
-			<option value="18">18</option>
-			<option value="19">19</option>
-			<option value="20">20</option>
-			<option value="21">21</option>
-			<option value="22">22</option>
-			<option value="23">23</option>
-			<option value="24">24</option>
-			<option value="25">25</option>
-			<option value="26">26</option>
-			<option value="27">27</option>
-			<option value="28">28</option>
-			<option value="29">29</option>
-			<option value="30">30</option>
-			<option value="31">31</option>
-			</select>
-		<select name="year_from" id="year_from" required class="year_from">
-			<option value="2025">2025</option>
-			<option value="2026">2026</option>
-		</select>
-		</div>	
-				<p>To:</p>
-		<div class="from">
-		<select name="month_to" id="month_to" required class="month_to">
-			<option value="1">January</option>
-			<option value="2">February</option>
-			<option value="3">March</option>
-			<option value="4">April</option>
-			<option value="5">May</option>
-			<option value="6">June</option>
-			<option value="7">July</option>
-			<option value="8">August</option>
-			<option value="9">September</option>
-			<option value="10">October</option>
-			<option value="11">November</option>
-			<option value="12">December</option>
-		</select>
-		<select name="day_to" id="day_to" required class="day_to">
-			<option value="1">1</option>
-			<option value="2">2</option>
-			<option value="3">3</option>
-			<option value="4">4</option>
-			<option value="5">5</option>
-			<option value="6">6</option>
-			<option value="7">7</option>
-			<option value="8">8</option>
-			<option value="9">9</option>
-			<option value="10">10</option>
-			<option value="11">11</option>
-			<option value="12">12</option>
-			<option value="13">13</option>
-			<option value="14">14</option>
-			<option value="15">15</option>
-			<option value="16">16</option>
-			<option value="17">17</option>
-			<option value="18">18</option>
-			<option value="19">19</option>
-			<option value="20">20</option>
-			<option value="21">21</option>
-			<option value="22">22</option>
-			<option value="23">23</option>
-			<option value="24">24</option>
-			<option value="25">25</option>
-			<option value="26">26</option>
-			<option value="27">27</option>
-			<option value="28">28</option>
-			<option value="29">29</option>
-			<option value="30">30</option>
-			<option value="31">31</option>
-			</select>
-		<select name="year_to" id="year_to" required class="year_to">
-			<option value="2025">2025</option>
-			<option value="2026">2026</option>
-		</select>
-	</div>
-	<br><br> <input type="submit" id="submitbtn" value="Submit">
-	</form>
-	</div>
-    
-    <script>
-	 document.querySelector("input[type=file]").onchange = ({
-      target: { value },
-    }) => {
-      document.querySelector("button[type=submit]").disabled = !value;
-	};
-
-</script>
-
-</body>
-<!-- Why are you looking at this? :)  ~ Clay-->
-</html>
-"""
-    return HTMLResponse(content=html_content)
-
-# Process uploaded spreadsheet. Currently works just as intended. Proooobably could be more efficient.
-@app.post("/process", response_class=HTMLResponse)
-async def process_file(file: UploadFile):
     if file.filename[-1] == 'x' and file.filename[:5] != 'Agent':
-        InputSpreadsheet.input_file = 'temp_files\\temp_file.csv'
+        input_file = 'temp_files\\temp_file.csv'
         if not os.path.exists(f'temp_files\\{file.filename}'):
             try:
                 contents = await file.read()
-                async with aiofiles.open(f"temp_files\\{file.filename}", 'wb') as f: # type: ignore
+                async with aiofiles.open(f"temp_files\\{file.filename}", 'wb') as f:
                     await f.write(contents)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f'Something went wrong. Tell Clay! {e}')
             finally:
                 await file.close()
-            wb = openpyxl.load_workbook(filename= f'temp_files\\{file.filename}', data_only=True) 
+            wb = openpyxl.load_workbook(filename=f'temp_files\\{file.filename}', data_only=True)
             sheet = wb.worksheets[0]
             reader = sheet.iter_rows(values_only=True)
             first_row_skipped = False
@@ -1205,37 +407,38 @@ async def process_file(file: UploadFile):
                 elif row not in input_rows:
                     input_rows.append(row)
 
-            with open(InputSpreadsheet.input_file, 'w', newline='') as temp:
+            with open(input_file, 'w', newline='') as temp:
                 writer = csv.writer(temp)
                 for row in input_rows:
                     writer.writerow(row)
-    elif file.filename[-1] == 'x' and file.filename[:5] == 'Agent':        
-        ic("Urology file detected")
+    elif file.filename[-1] == 'x' and file.filename[:5] == 'Agent':
+        print("Urology file detected")
         if not os.path.exists(f'temp_files\\{file.filename}'):
             try:
                 contents = await file.read()
-                async with aiofiles.open(f"temp_files\\{file.filename}", 'wb') as f: # type: ignore
+                async with aiofiles.open(f"temp_files\\{file.filename}", 'wb') as f:
                     await f.write(contents)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f'Something went wrong. Tell Clay! {e}')
             finally:
                 await file.close()
         handle_xlsx(f"temp_files\\{file.filename}")
-        InputSpreadsheet.input_file = "temp_files\\urology_output.csv"
-    
+        input_file = "temp_files\\urology_output.csv"
+
     if file.filename[-1] == 'v':
-         if not os.path.exists(f'temp_files\\{file.filename}'):
+        if not os.path.exists(f'temp_files\\{file.filename}'):
             try:
                 contents = await file.read()
-                async with aiofiles.open(InputSpreadsheet.input_file, 'wb') as f: # type: ignore
+                async with aiofiles.open(f"temp_files\\{file.filename}", 'wb') as f:
                     await f.write(contents)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f'Something went wrong. Tell Clay! {e}')
             finally:
                 await file.close()
+        input_file = f"temp_files\\{file.filename}"
 
-    def row_generator() -> Generator:     
-        with open(InputSpreadsheet.input_file, 'r', encoding='utf-8-sig') as csvfile:
+    def row_generator() -> Generator:
+        with open(input_file, 'r', encoding='utf-8-sig') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 try:
@@ -1245,34 +448,21 @@ async def process_file(file: UploadFile):
 
     row_gen = row_generator()
     con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()        
-    cur.execute("SELECT queue, time, phone FROM missedcalls;")
-    cached_rows: list[tuple] = cur.fetchall()
-    processed_rows = []
-    rows_added = 0
-    datetime_format = "%m/%#d/%y %#I:%M:%S %p"
-    for row in cached_rows:
-        tuple_to_append = (row[0], datetime.strftime(row[1], datetime_format), str(row[2]))
-        processed_rows.append(tuple_to_append)
-    # 10/05/25 4:08:36 PM for time format. note the lack of a leading 0 for the hour and two digit year!
+    cur = con.cursor()
+    QUERY = "INSERT into missedcalls (queue, time, phone, dialed) VALUES (%s, %s, %s, %s) ON CONFLICT (queue, time, phone) DO NOTHING;"
+    to_insert = []
     for row in row_gen:
-            row_values: tuple[str, str, int] = (row['Queue Name'], str(row['Call Time']), row['Phone Number'])      
-            if row_values in processed_rows:
-                print("Call already in database:", row_values)
-                continue
-            else:
-                if row['Contact Disposition'] in {'1', '1.0'}:            
-                    QUERY = "INSERT into missedcalls (queue, time, phone, dialed) VALUES (%s, %s, %s, %s) ON CONFLICT (queue, time, phone) DO NOTHING;"
-                    try:
-                        DATA = (row['Queue Name'], row['Call Time'], int(row['Phone Number']), int(row['Number Dialed']))                      
-                        cur.execute(QUERY, DATA)                        
-                        rows_added += 1
-                    except Exception as e:
-                        print(e)
-                        print(row)
-                        print(DATA)
-                        print("Phone number was probably not a phone number.\n")
-        
+        if row['Contact Disposition'] in {'1', '1.0'}:
+            try:
+                to_insert.append((row['Queue Name'], row['Call Time'], int(row['Phone Number']), int(row['Number Dialed'])))
+            except (ValueError, TypeError):
+                print("Skipped row (invalid phone/dialed):", row)
+    if to_insert:
+        cur.executemany(QUERY, to_insert)
+        rows_added = cur.rowcount
+    else:
+        rows_added = 0
+
     cur.close()
     con.commit()
     con.close()
@@ -1283,108 +473,403 @@ async def process_file(file: UploadFile):
             os.remove(f'temp_files\\{x}')
     except:
         pass
+
     if rows_added == 0:
         return HTMLResponse(content="File uploaded and processed successfully. No new calls were added to the database.")
     else:
         return HTMLResponse(content=f"File uploaded and processed successfully. {rows_added} new calls were added to the database.")
 
-@app.post("/report") #Allows user to download a report. Report is mostly static except for the date range.
-async def run_report(month_from: int = Form(...), day_from: int = Form(...), year_from: int = Form(...), month_to: int = Form(...), day_to: int = Form(...), year_to: int = Form(...)) -> FileResponse:
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()
+def handle_xlsx(input):
+    calls_presented: int = 0
+    calls_handled: int = 0
+    presented_dict: dict = {}
+    handled_dict: dict = {}
+    wb = openpyxl.load_workbook(filename=f'{input}', data_only=True)
+    sheet = wb.worksheets[0]
+    reader = sheet.iter_rows(values_only=True)
+    first_row_skipped = False
+    input_rows: list = []
+    for row in reader:
+        if row[0] == None:
+            if not first_row_skipped:
+                first_row_skipped = True
+            else:
+                break
+            continue
+        elif row not in input_rows:
+            input_rows.append(row)
 
-    from_date = str(year_from) + "-" + str(month_from) + "-" + str(day_from)
-    to_date = str(year_to) + "-" + str(month_to) + "-" + str(day_to)
+    with open('temp_files\\temp_file.csv', 'w', newline='') as temp:
+        writer = csv.writer(temp)
+        for row in input_rows:
+            writer.writerow(row)
+    previous_row = {}
+    with open('temp_files\\temp_file.csv', "r") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            if row['Extension'] == row['Call ANI'] and row['Called Number'] == '21898':
+                calls_presented += 1
+                presented_dict[row['Call Start Time']] = previous_row['Call ANI']
+            if row['Extension'] != row['Call ANI'] and row['Called Number'] == '21898':
+                calls_handled += 1
+                handled_dict[row['Call Start Time']] = row['Call ANI']
+            previous_row = row
 
-    print(from_date)
+    presented_numbers: list[str] = list(presented_dict.values())
+    handled_numbers: list[str] = list(handled_dict.values())
+    abandoned_numbers: dict[str, str] = {}
 
-    if datetime.strptime(to_date, '%Y-%m-%d') < datetime.strptime(from_date, '%Y-%m-%d'):
-        html_content="""
-<html>
-        <head>            
-            <style>
-            body {
-		margin: 0;
-		display: grid;
-		place-items: center;
-		background-color: lightgray;
-	}
-	div {
-		text-align: center;
-	}
+    for number in presented_numbers:
+        call_time = ''
+        if number not in handled_numbers and number not in abandoned_numbers:
+            for time in presented_dict.keys():
+                if number == presented_dict[time]:
+                    call_time = time
+            abandoned_numbers[call_time] = number
 
-	p, button {
-		text-align: center;
-	}
-            </style>
-        </head>
-        <link rel="icon" type = "image/x-icon" href="/static/favicon.ico">
-        <body>
-        <div><img src="/static/dhr-logo.png" alt = "DHR Logo" width = "320px" height = "87.5px"></div>
-            <h2>Report range error!</h2>
-            <p>Please go back and check your report range and make sure the "From" date is before or the same as the "To" date</p>
-            <p><div><a href="/" class="active">Go back</a></div>
-            </body>
-            </html>            
-            """
-        return HTMLResponse(content=html_content) # type: ignore
-
-    with open('callbacks_report.csv', 'w', newline = '') as output:
-        header_row = ['Queue', 'Date and Time of Call', 'Phone Number', 'Returned', 'Returned On', 'IP Address', 'PC Name']
-        QUERY = "SELECT * FROM missedcalls WHERE (DATE(time) >= %s AND DATE(time) <= %s);"
-        DATA = (from_date, to_date)
-        cur.execute(QUERY, DATA)
-        results = cur.fetchall()
+    with open("temp_files\\urology_output.csv", 'w', newline='') as output:
         writer = csv.writer(output)
-        writer.writerow(header_row)
-        writer.writerows(results)
+        header = ['Queue Name', 'Call Time', 'Phone Number', 'Contact Disposition']
+        writer.writerow(header)
+        for time in abandoned_numbers.keys():
+            writer.writerow(['URO_SCHL_CSQ', time, abandoned_numbers[time], '1'])
 
-    cur.close()
-    con.close()    
-    return FileResponse(path='.\callbacks_report.csv', status_code=200, media_type="csv", filename="callbacks_report.csv") # type: ignore
 
-@app.post("/clearcalls", response_class=HTMLResponse)
-async def clear_calls(request: Request, data: SelectedRows):
-    print(data)
-    client_ip = request.client.host
-    hostname = get_hostname(client_ip)
-    selected_rows = data.selectedRows
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor()
-
-    QUERY = "UPDATE missedcalls SET returned = True, returned_on = CURRENT_TIMESTAMP(0), ip_address = %s, hostname = %s WHERE (time = %s AND phone = %s);"
-    
-    print("Calls marked as returned: ", len(selected_rows))
-
-    for call in selected_rows:
-        DATA = (client_ip, hostname, call[0], call[1])
-        cur.execute(QUERY, DATA)
-
-    cur.close()
-    con.commit()
-
-    return HTMLResponse(content="How did you see this? Tell Clay what you did to get to this message!")
-
-def get_hostname(ip_address):
-    try:
-        hostname = socket.gethostbyaddr(ip_address)[0]
-        return hostname
-    except socket.herror:
-        return "No hostname found"
-
-def init_db():
-    con = psycopg2.connect(CONNECT_STR)
-    cur = con.cursor() 
-    cur.execute("""CREATE TABLE IF NOT EXISTS missedcalls 
-                (queue TEXT,
-                time TIMESTAMP,
-                phone BIGINT,
-                returned BOOLEAN DEFAULT FALSE,
-                returned_on TIMESTAMP DEFAULT NULL,
-                ip_address INET,
-                hostname TEXT, 
-                UNIQUE (queue, time, phone)
-                );"""
+def _fetch_report_data(from_date: datetime, to_date: datetime):
+    """Query the DB and return structured report data grouped by queue."""
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute(
+                """
+                SELECT queue, time, phone, returned, returned_on, ip_address, hostname
+                FROM missedcalls
+                WHERE DATE(time) >= %s AND DATE(time) <= %s
+                ORDER BY queue, time;
+                """,
+                (from_date, to_date),
             )
-    cur.close()
-    con.commit()
+            results = cur.fetchall()
+
+    # Group by queue
+    from collections import defaultdict
+    queues = defaultdict(list)
+    for row in results:
+        queues[row[0]].append({
+            "time": row[1],
+            "phone": row[2],
+            "returned": row[3],
+            "returned_on": row[4],
+            "ip_address": str(row[5]) if row[5] else "",
+            "hostname": row[6] if row[6] else "",
+        })
+
+    # Build per-queue summaries
+    queue_data = []
+    overall_total = 0
+    overall_returned = 0
+
+    for qname in sorted(queues.keys()):
+        calls = queues[qname]
+        total = len(calls)
+        returned = sum(1 for c in calls if c["returned"])
+        not_returned = total - returned
+        rate = round((returned / total) * 100) if total else 0
+
+        # Daily breakdown
+        daily = defaultdict(int)
+        for c in calls:
+            daily[c["time"].strftime("%m/%d")] += 1
+        daily_sorted = sorted(daily.items())
+
+        queue_data.append({
+            "name": qname,
+            "total": total,
+            "returned": returned,
+            "not_returned": not_returned,
+            "rate": rate,
+            "daily": daily_sorted,
+            "calls": calls,
+        })
+
+        overall_total += total
+        overall_returned += returned
+
+    overall_not_returned = overall_total - overall_returned
+    overall_rate = round((overall_returned / overall_total) * 100) if overall_total else 0
+
+    return {
+        "overall_total": overall_total,
+        "overall_returned": overall_returned,
+        "overall_not_returned": overall_not_returned,
+        "overall_rate": overall_rate,
+        "queues": queue_data,
+    }
+
+
+@app.post("/report")
+async def report_form(request: Request, month: int = Form(...), day: int = Form(...), year: int = Form(...)):
+    """Handle the date form submission from the home page."""
+    try:
+        from_date = datetime(year, month, day)
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "report_error.html",
+            {"error_message": "Invalid date selected."},
+        )
+
+    to_date = datetime.now()
+    data = _fetch_report_data(from_date, to_date)
+
+    return templates.TemplateResponse(
+        request,
+        "report.html",
+        {
+            "date_from": from_date.strftime("%Y-%m-%d"),
+            "date_to": to_date.strftime("%Y-%m-%d"),
+            "data": data,
+        },
+    )
+
+@app.get("/report")
+async def report_page(request: Request, date_from: str = "", date_to: str = ""):
+    """Render the interactive HTML report page with per-queue accordions."""
+    try:
+        from_date = datetime.strptime(date_from, "%Y-%m-%d")
+        to_date = datetime.strptime(date_to, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return templates.TemplateResponse(request, "report_error.html")
+
+    if to_date < from_date:
+        return templates.TemplateResponse(request, "report_error.html")
+
+    data = _fetch_report_data(from_date, to_date)
+
+    return templates.TemplateResponse(
+        request,
+        "report.html",
+        {
+            "date_from": date_from,
+            "date_to": date_to,
+            "data": data,
+        },
+    )
+
+@app.get("/report/download_csv")
+async def download_csv(date_from: str = "", date_to: str = "", queues: str = ""):
+    """Download the report as a flat CSV. Optionally filter by comma-separated queue names."""
+    try:
+        from_date = datetime.strptime(date_from, "%Y-%m-%d")
+        to_date = datetime.strptime(date_to, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid dates.")
+
+    queue_list = [q.strip() for q in queues.split(",") if q.strip()] if queues else None
+
+    with get_connection() as con:
+        with con.cursor() as cur:
+            if queue_list:
+                placeholders = ", ".join(["%s"] * len(queue_list))
+                cur.execute(
+                    f"""
+                    SELECT queue, time, phone, returned, returned_on, ip_address, hostname
+                    FROM missedcalls
+                    WHERE DATE(time) >= %s AND DATE(time) <= %s AND queue IN ({placeholders})
+                    ORDER BY time;
+                    """,
+                    [from_date, to_date] + queue_list,
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT queue, time, phone, returned, returned_on, ip_address, hostname
+                    FROM missedcalls
+                    WHERE DATE(time) >= %s AND DATE(time) <= %s
+                    ORDER BY time;
+                    """,
+                    (from_date, to_date),
+                )
+            results = cur.fetchall()
+
+    with open("callbacks_report.csv", "w", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(["Queue", "Date and Time of Call", "Phone Number", "Returned", "Returned On", "IP Address", "PC Name"])
+        for row in results:
+            writer.writerow([
+                row[0],
+                row[1].strftime("%m/%d/%y %I:%M:%S %p") if row[1] else "",
+                row[2],
+                "Yes" if row[3] else "No",
+                row[4].strftime("%m/%d/%y %I:%M:%S %p") if row[4] else "",
+                str(row[5]) if row[5] else "",
+                row[6] if row[6] else "",
+            ])
+
+    return FileResponse(
+        path="callbacks_report.csv",
+        media_type="text/csv",
+        filename="callbacks_report.csv",
+    )
+
+@app.get("/report/download_excel")
+async def download_excel(date_from: str = "", date_to: str = "", queues: str = ""):
+    """Download the report as a multi-sheet Excel file. Optionally filter by comma-separated queue names."""
+    try:
+        from_date = datetime.strptime(date_from, "%Y-%m-%d")
+        to_date = datetime.strptime(date_to, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid dates.")
+
+    queue_list = [q.strip() for q in queues.split(",") if q.strip()] if queues else None
+    data = _fetch_report_data(from_date, to_date)
+
+    # Filter queues if specified
+    if queue_list:
+        data["queues"] = [q for q in data["queues"] if q["name"] in queue_list]
+        data["overall_total"] = sum(q["total"] for q in data["queues"])
+        data["overall_returned"] = sum(q["returned"] for q in data["queues"])
+        data["overall_not_returned"] = data["overall_total"] - data["overall_returned"]
+        data["overall_rate"] = round((data["overall_returned"] / data["overall_total"]) * 100) if data["overall_total"] else 0
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+
+    # --- Summary sheet ---
+    ws = wb.active
+    ws.title = "Summary" # type: ignore
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    header_fill = PatternFill(start_color="00A9A7", end_color="00A9A7", fill_type="solid")
+    green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+    ws["A1"] = "Abandoned Call Report" # type: ignore
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = f"Date Range: {date_from} to {date_to}"
+    ws["A3"] = f"Generated: {datetime.now().strftime('%m/%d/%Y %I:%M %p')}"
+
+    row = 5
+    ws.cell(row=row, column=1, value="Metric").font = Font(bold=True)
+    ws.cell(row=row, column=2, value="Value").font = Font(bold=True)
+    row += 1
+    ws.cell(row=row, column=1, value="Total Calls")
+    ws.cell(row=row, column=2, value=data["overall_total"])
+    row += 1
+    ws.cell(row=row, column=1, value="Returned")
+    ws.cell(row=row, column=2, value=data["overall_returned"])
+    row += 1
+    ws.cell(row=row, column=1, value="Not Returned")
+    ws.cell(row=row, column=2, value=data["overall_not_returned"])
+    row += 1
+    ws.cell(row=row, column=1, value="Return Rate")
+    ws.cell(row=row, column=2, value=f"{data['overall_rate']}%")
+
+    row += 2
+    ws.cell(row=row, column=1, value="Queue").font = Font(bold=True)
+    ws.cell(row=row, column=2, value="Total").font = Font(bold=True)
+    ws.cell(row=row, column=3, value="Returned").font = Font(bold=True)
+    ws.cell(row=row, column=4, value="Not Returned").font = Font(bold=True)
+    ws.cell(row=row, column=5, value="Rate %").font = Font(bold=True)
+    row += 1
+    for q in data["queues"]:
+        ws.cell(row=row, column=1, value=q["name"])
+        ws.cell(row=row, column=2, value=q["total"])
+        ws.cell(row=row, column=3, value=q["returned"])
+        ws.cell(row=row, column=4, value=q["not_returned"])
+        ws.cell(row=row, column=5, value=f"{q['rate']}%")
+        row += 1
+
+    # --- Per-queue sheets ---
+    for q in data["queues"]:
+        sheet_name = q["name"][:31].replace("/", "-").replace("\\", "-").replace("[", "(").replace("]", ")").replace("*", "").replace("?", "").replace(":", "-")
+        ws_q = wb.create_sheet(title=sheet_name)
+
+        ws_q["A1"] = f"Queue: {q['name']}"
+        ws_q["A1"].font = Font(bold=True, size=13)
+        ws_q["A2"] = f"Total: {q['total']}  |  Returned: {q['returned']}  |  Not Returned: {q['not_returned']}  |  Rate: {q['rate']}%"
+
+        headers = ["Call Time", "Phone Number", "Returned", "Returned On", "IP Address", "PC Name"]
+        for col, h in enumerate(headers, 1):
+            cell = ws_q.cell(row=4, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        for i, call in enumerate(q["calls"], start=5):
+            ws_q.cell(row=i, column=1, value=call["time"].strftime("%m/%d/%Y %I:%M:%S %p"))
+            ws_q.cell(row=i, column=2, value=call["phone"])
+            ret_cell = ws_q.cell(row=i, column=3, value="Yes" if call["returned"] else "No")
+            ret_cell.fill = green_fill if call["returned"] else red_fill
+            ws_q.cell(row=i, column=4, value=call["returned_on"].strftime("%m/%d/%Y %I:%M:%S %p") if call["returned_on"] else "")
+            ws_q.cell(row=i, column=5, value=call["ip_address"])
+            ws_q.cell(row=i, column=6, value=call["hostname"])
+
+        for col in range(1, 7):
+            ws_q.column_dimensions[get_column_letter(col)].width = 18
+
+    excel_path = "callbacks_report.xlsx"
+    wb.save(excel_path)
+
+    return FileResponse(
+        path=excel_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="callbacks_report.xlsx",
+    )
+
+@app.get("/report_error")
+async def report_error(request: Request):
+    return templates.TemplateResponse(request, "report_error.html")
+
+# ---------------------------------------------------------------------------
+# Easter Egg — Credits
+# ---------------------------------------------------------------------------
+_logo_clicks: dict[str, int] = {}
+
+@app.post("/logo_click")
+async def logo_click(request: Request):
+    """Increment the secret click counter for this client."""
+    ip = request.client.host if request.client else "unknown"
+    _logo_clicks[ip] = _logo_clicks.get(ip, 0) + 1
+    return JSONResponse({"ok": True})
+
+@app.get("/credits")
+async def credits(request: Request):
+    """Secret credits page — only accessible after 5 head clicks."""
+    ip = request.client.host if request.client else "unknown"
+    count = _logo_clicks.get(ip, 0)
+    if count < 5:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return templates.TemplateResponse(
+        request,
+        "credits.html",
+    )
+
+@app.get("/leaderboard")
+async def get_leaderboard(request: Request):
+    """Return the top 10 leaderboard entries."""
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute("SELECT name, score FROM leaderboard ORDER BY score DESC LIMIT 10;")
+            rows = cur.fetchall()
+    return JSONResponse([{"name": r[0], "score": r[1]} for r in rows])
+
+@app.post("/leaderboard")
+async def add_leaderboard(request: Request, name: str = Form(...), score: int = Form(...)):
+    """Insert a new leaderboard entry."""
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="Name is required.")
+    with get_connection() as con:
+        with con.cursor() as cur:
+            cur.execute("INSERT INTO leaderboard (name, score) VALUES (%s, %s);", (name.strip(), score))
+        con.commit()
+    return JSONResponse({"ok": True})
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=13798, reload=False)

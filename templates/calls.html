@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+{% block title %}Abandoned Call Log – {{ queue_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Abandoned Call Log for {{ queue_name }}</h2>
+    <p class="as-of">As of {{ current_time }} on {{ current_date }}</p>
+</div>
+
+<div class="instructions">
+    Numbers are clickable (Open with Jabber). Check the box when a call is returned and click <strong>Mark Selected as Returned</strong> once.
+    When the last call is cleared, you'll return to the Queue Selection.
+</div>
+
+<div class="table-container">
+    <!-- Main Log Card -->
+    <div class="card main-log-card">
+        <form id="dynamicForm" method="post" action="/clearcalls">
+            <input type="hidden" name="queue" value="{{ queue_name }}">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Queue Name(s)</th>
+                        <th>Date/Time</th>
+                        <th>Phone Number</th>
+                        <th>Dialed Number</th>
+                        <th>
+                            <div class="select-all-wrap">
+                                <input type="checkbox" id="select-all" title="Select all calls">
+                                <label for="select-all">All</label>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for call in calls %}
+                    <tr>
+                        <td>{{ call.queue }}</td>
+                        <td>{{ call.time.strftime("%m/%d/%y %I:%M %p") }}</td>
+                        <td><a href="tel:{{ call.phone }}" class="phone-link">{{ call.phone }}</a></td>
+                        <td>{{ call.dialed or "—" }}</td>
+                        <td><input type="checkbox"
+                             data-time="{{ call.time.strftime('%Y-%m-%d %H:%M:%S') }}"
+                             data-phone="{{ call.phone }}"
+                             data-dialed="{{ call.dialed or '' }}"></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="no-data">No unreturned calls found for this queue today.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% if calls %}
+            <input type="hidden" name="calls_json" id="calls-json" value="">
+            <div class="card-footer">
+                <input type="submit" value="Mark Selected as Returned" id="submit-btn" disabled>
+            </div>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Stats Card -->
+    <div class="card stats-card">
+        <div class="period-toggle">
+            <button class="period-btn" data-period="day">Today</button>
+            <button class="period-btn active" data-period="week">This Week</button>
+            <button class="period-btn" data-period="month">This Month</button>
+        </div>
+        <table class="stats-table">
+            <caption id="stats-caption">{{ queue_name }} Weekly Performance</caption>
+            <thead>
+                <tr>
+                    <th>Abandoned</th>
+                    <th>Returned</th>
+                    <th>Rate</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td id="stat-abandoned">{{ weekly_missed }}</td>
+                    <td id="stat-returned">{{ weekly_returned }}</td>
+                    <td id="stat-rate">{{ weekly_rate }}%</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="gauge-wrapper">
+            <svg id="myGauge" viewBox="0 0 220 150" width="100%" height="auto" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                    <linearGradient id="gaugeGradGreen" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#06b6d4"/>
+                        <stop offset="100%" stop-color="#22c55e"/>
+                    </linearGradient>
+                    <linearGradient id="gaugeGradAmber" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#f59e0b"/>
+                        <stop offset="100%" stop-color="#f97316"/>
+                    </linearGradient>
+                    <linearGradient id="gaugeGradRed" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#f43f5e"/>
+                        <stop offset="100%" stop-color="#ef4444"/>
+                    </linearGradient>
+                    <filter id="gaugeGlow" x="-30%" y="-30%" width="160%" height="160%">
+                        <feGaussianBlur stdDeviation="4" result="blur"/>
+                        <feMerge>
+                            <feMergeNode in="blur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                    <filter id="needleGlow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="2.5" result="blur"/>
+                        <feMerge>
+                            <feMergeNode in="blur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                </defs>
+
+                <!-- Background track -->
+                <path class="gauge-track" d="M 20 120 A 90 90 0 0 1 200 120" fill="none" stroke="#e2e8f0" stroke-width="16" stroke-linecap="round"/>
+
+                <!-- Value arc -->
+                <path id="gauge-arc" class="gauge-value-arc" d="M 20 120 A 90 90 0 0 1 200 120" fill="none" stroke="url(#gaugeGradGreen)" stroke-width="16" stroke-linecap="round" stroke-dasharray="0 999" filter="url(#gaugeGlow)"/>
+
+                <!-- Tick marks -->
+                <g class="gauge-ticks" id="gauge-ticks"></g>
+
+                <!-- Needle group -->
+                <g id="gauge-needle" class="gauge-needle" transform="rotate({{ needle_angle }} 110 120)">
+                    <line x1="110" y1="120" x2="110" y2="48" stroke="#1e293b" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="110" cy="48" r="5" fill="#1e293b" class="gauge-needle-tip" filter="url(#needleGlow)"/>
+                </g>
+                <circle class="gauge-hub" cx="110" cy="120" r="9" fill="#1e293b"/>
+                <circle class="gauge-hub-inner" cx="110" cy="120" r="4" fill="#f8fafc"/>
+
+                <!-- Labels -->
+                <text class="gauge-label" x="18" y="140" text-anchor="middle">0</text>
+                <text class="gauge-label" x="110" y="18" text-anchor="middle">50</text>
+                <text class="gauge-label" x="202" y="140" text-anchor="middle">100</text>
+
+                <!-- Percentage text -->
+                <text id="gauge-text" class="gauge-value" x="110" y="108" text-anchor="middle">{{ weekly_rate }}%</text>
+            </svg>
+        </div>
+        <div class="card-footer">
+            <a class="button-footer" href="/dashboard">Overall Performance Dashboard &rarr;</a>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const queue = "{{ queue_name }}";
+        const buttons = document.querySelectorAll('.period-btn');
+        const caption = document.getElementById('stats-caption');
+        const statAbandoned = document.getElementById('stat-abandoned');
+        const statReturned = document.getElementById('stat-returned');
+        const statRate = document.getElementById('stat-rate');
+        const gaugeNeedle = document.getElementById('gauge-needle');
+        const gaugeText = document.getElementById('gauge-text');
+        const gaugeArc = document.getElementById('gauge-arc');
+        const gaugeTicks = document.getElementById('gauge-ticks');
+
+        const periodLabels = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
+
+        // --- Generate tick marks ---
+        (function generateTicks() {
+            const cx = 110, cy = 120, innerR = 72, outerR = 82;
+            let html = '';
+            for (let i = 0; i <= 10; i++) {
+                const angle = -90 + (i * 18); // -90 to +90
+                const rad = (angle * Math.PI) / 180;
+                const x1 = cx + innerR * Math.sin(rad);
+                const y1 = cy - innerR * Math.cos(rad);
+                const x2 = cx + outerR * Math.sin(rad);
+                const y2 = cy - outerR * Math.cos(rad);
+                const major = (i % 5 === 0);
+                html += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${major ? '#94a3b8' : '#cbd5e1'}" stroke-width="${major ? 2 : 1}"/>`;
+            }
+            gaugeTicks.innerHTML = html;
+        })();
+
+        // --- Gauge update function ---
+        function updateGauge(rate) {
+            const clamped = Math.max(0, Math.min(100, rate));
+            const angle = -90 + (clamped * 1.8);
+            gaugeNeedle.setAttribute('transform', `rotate(${angle} 110 120)`);
+            gaugeText.textContent = clamped + '%';
+
+            // Arc dasharray
+            const arcLen = 282.7; // approximate half-circle length (pi * 90)
+            const dashLen = (clamped / 100) * arcLen;
+            gaugeArc.setAttribute('stroke-dasharray', `${dashLen} ${arcLen}`);
+
+            // Color gradient based on value
+            let grad;
+            let textColor;
+            if (clamped >= 70) {
+                grad = 'url(#gaugeGradGreen)';
+                textColor = '#22c55e';
+            } else if (clamped >= 40) {
+                grad = 'url(#gaugeGradAmber)';
+                textColor = '#f59e0b';
+            } else {
+                grad = 'url(#gaugeGradRed)';
+                textColor = '#ef4444';
+            }
+            gaugeArc.setAttribute('stroke', grad);
+            gaugeText.setAttribute('fill', textColor);
+        }
+
+        // Initialize gauge
+        updateGauge({{ weekly_rate }});
+
+        // --- Form submit: build calls_json from checked checkboxes ---
+        const form = document.getElementById('dynamicForm');
+        if (form) {
+            const submitBtn = document.getElementById('submit-btn');
+            const selectAll = document.getElementById('select-all');
+
+            function getRowCheckboxes() {
+                return form.querySelectorAll('tbody input[type="checkbox"]');
+            }
+
+            // --- Live selection count + enable/disable button ---
+            function updateButtonState() {
+                const activeCount = form.querySelectorAll('tbody input[type="checkbox"]:checked').length;
+                const total = getRowCheckboxes().length;
+                if (submitBtn) {
+                    if (activeCount > 0) {
+                        submitBtn.disabled = false;
+                        submitBtn.value = 'Mark ' + activeCount + ' as Returned';
+                    } else {
+                        submitBtn.disabled = true;
+                        submitBtn.value = 'Mark Selected as Returned';
+                    }
+                }
+                if (selectAll) {
+                    selectAll.checked = (activeCount === total && total > 0);
+                    selectAll.indeterminate = (activeCount > 0 && activeCount < total);
+                }
+            }
+
+            form.addEventListener('change', function(e) {
+                if (e.target.type === 'checkbox') updateButtonState();
+            });
+
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    getRowCheckboxes().forEach(function(cb) { cb.checked = selectAll.checked; });
+                    updateButtonState();
+                });
+            }
+
+            form.addEventListener('submit', function(e) {
+                const checked = form.querySelectorAll('tbody input[type="checkbox"]:checked');
+                if (checked.length === 0) {
+                    e.preventDefault();
+                    alert('Please select at least one call to mark as returned.');
+                    return;
+                }
+                const count = checked.length;
+                const confirmed = confirm('Mark ' + count + ' call' + (count > 1 ? 's' : '') + ' as returned?');
+                if (!confirmed) {
+                    e.preventDefault();
+                    return;
+                }
+                const calls = [];
+                checked.forEach(function(cb) {
+                    calls.push({
+                        time: cb.dataset.time,
+                        phone: cb.dataset.phone,
+                        dialed: cb.dataset.dialed
+                    });
+                });
+                document.getElementById('calls-json').value = JSON.stringify(calls);
+            });
+
+            // Initialize button state on load
+            updateButtonState();
+        }
+
+        // --- Period toggle ---
+        buttons.forEach(btn => {
+            btn.addEventListener('click', async function() {
+                buttons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                const period = this.dataset.period;
+                try {
+                    const res = await fetch(`/calls/stats?queue=${encodeURIComponent(queue)}&period=${period}`);
+                    if (!res.ok) throw new Error('Failed to fetch stats');
+                    const data = await res.json();
+
+                    statAbandoned.textContent = data.abandoned;
+                    statReturned.textContent = data.returned;
+                    statRate.textContent = data.rate + '%';
+                    caption.textContent = queue + ' ' + periodLabels[period] + ' Performance';
+
+                    updateGauge(data.rate);
+                } catch (e) {
+                    console.error('Stats fetch error:', e);
+                }
+            });
+        });
+    })();
+    </script>
+</div>
+{% endblock %}

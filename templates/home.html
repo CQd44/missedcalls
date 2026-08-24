@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Service Recovery Platform{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Service Recovery</h2>
+    <p class="as-of" id="last-updated"></p>
+</div>
+
+<div class="queue-card">
+    <div class="info-text">
+        <p>Please select your queue from the dropdown list. This tool only shows missed calls from the <strong>current day</strong>.</p>
+        <p>If your queue isn't listed, it currently doesn't have any calls to return, but please check back later.</p>
+        <p><small>Note: Calls are refreshed hourly. This page auto-refreshes every 5 minutes.</small></p>
+    </div>
+
+    <form method="get" action="/calls">
+        <label for="queue">Select Queue:</label>
+        <select name="queue" id="queue" class="queue-select" required>
+            <option value="" disabled selected>Select a queue...</option>
+            {% for q in queues %}
+            <option value="{{ q }}">{{ q }}</option>
+            {% endfor %}
+        </select>
+        <input type="submit" value="Submit">
+    </form>
+
+    <div class="card-footer">
+        <a class="button-footer" href="/dashboard">Overall Performance Dashboard &rarr;</a>
+    </div>
+
+    <hr>
+
+    <div class="report-section">
+        <h3>Run Abandoned Call Report:</h3>
+        <form action="/report" method="get" class="report-form">
+            <div class="report-form-row">
+                <div class="report-field">
+                    <label for="date_from">From:</label>
+                    <input type="date" id="date_from" name="date_from" required>
+                </div>
+                <div class="report-field">
+                    <label for="date_to">To:</label>
+                    <input type="date" id="date_to" name="date_to" required>
+                </div>
+                <input type="submit" value="Submit">
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

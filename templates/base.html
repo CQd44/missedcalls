@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Missed Calls{% endblock %}</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script>
+        /* Set theme before first paint to avoid a flash of the wrong theme. */
+        (function () {
+            try {
+                var t = localStorage.getItem('dhr-theme');
+                if (t !== 'light' && t !== 'dark') {
+                    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+                }
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/theme.js"></script>
+    {% block head %}{% endblock %}
+</head>
+    <body>
+        <div class="theme-toggle" role="button" tabindex="0" aria-label="Toggle dark mode" aria-pressed="false">
+            <span class="toggle-icon sun" aria-hidden="true">&#9728;&#65039;</span>
+            <span class="toggle-switch" aria-hidden="true"><span class="toggle-thumb"></span></span>
+            <span class="toggle-icon moon" aria-hidden="true">&#127769;</span>
+        </div>
+        <div class="logo-container">
+            <img src="/static/dhr-logo.png" alt="DHR Logo" width="320" height="88">
+        </div>
+        <nav class="main-nav">
+            <a class="nav-btn" href="/">Home</a>
+            <a class="nav-btn" href="/dashboard">Dashboard</a>
+        </nav>
+        {% block content %}{% endblock %}
+        <script src="/static/app.js"></script>
+        {% block scripts %}{% endblock %}
+</body>
+</html>
